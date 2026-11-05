@@ -149,6 +149,31 @@ describe('ratoon finish', () => {
     expect(gitOut(c.proj, 'show', '--format=%b', '-s', 'master')).toBe('')
   })
 
+  it('stamps the landing time on the commit it creates', async () => {
+    await start(c, 'backdated')
+    commitInSlot('slot-0', 'a.txt', 'a\n', 'wip')
+    // a draft cannot smuggle its own timestamp onto the base: the landing commit is new
+    gitOut(slotDir(c, 'slot-0'), 'commit', '--amend', '--no-edit', '--date', '2001-02-03T04:05:06')
+
+    const result = await finish('backdated', [], 'feat: the real title')
+    expect(result.status).toBe(0)
+    const author = gitOut(c.proj, 'show', '-s', '--format=%aI', 'master')
+    const committer = gitOut(c.proj, 'show', '-s', '--format=%cI', 'master')
+    expect(author).toBe(committer)
+    expect(author).not.toContain('2001')
+  })
+
+  it('rewrites nothing when the branch already carries the landing commit', async () => {
+    const title = 'feat: already final\n\nsecond line'
+    await start(c, 'already-final')
+    commitInSlot('slot-0', 'a.txt', 'a\n', title)
+    const branch = gitOut(c.proj, 'rev-parse', 'feature/already-final')
+
+    const result = await finish('already-final', [], title)
+    expect(result.status).toBe(0)
+    expect(gitOut(c.proj, 'rev-parse', 'master')).toBe(branch)
+  })
+
   it('refuses to land without a title, and says what the commits are', async () => {
     await start(c, 'untitled')
     commitInSlot('slot-0', 'a.txt', 'a\n', 'step one')

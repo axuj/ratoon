@@ -95,9 +95,11 @@ export async function rebaseInProgress(worktreeDir: string): Promise<boolean> {
  *
  * **The title is never derived.** A PR's title comes from the form, not from the commits, and so
  * does this one: the caller passes it, verbatim. The branch's own messages are drafts and are
- * dropped — `-m` is the whole landing message, not just its subject. That is also why a task whose
- * single commit already carries exactly that message is left untouched: same bytes, same sha, and
- * a re-run after a failed finish stays a no-op.
+ * dropped — `-m` is the whole landing message, not just its subject. Everything that survives is
+ * therefore re-created, so the landing commit is stamped with the landing time: keeping a draft's
+ * timestamp would put a non-monotonic date in the base's history. The one exception is a branch
+ * that already carries the landing commit — one commit, that exact message — because a re-run
+ * after a paused or failed finish must not rewrite work into a new sha.
  *
  * A branch whose commits add up to no tree change has nothing to land: its commits are dropped —
  * itself a no-op, since the tree already equals the merge base — rather than landing draft messages
@@ -134,8 +136,8 @@ export async function squashCommits(repoDir: string, base: string, message: stri
   // Commits that cancel each other out leave no tree difference. Drop them: a task with no net
   // change has nothing to land, and `reset --hard` to the merge base is lossless — the trees are
   // already identical. Landing them instead would put draft commits on the base; landing an empty
-  // commit would be noise. This has to run before the single-commit branch below, so one empty
-  // commit gets the same treatment as ten.
+  // commit would be noise. This has to run before the rewrite below, so one empty commit gets the
+  // same treatment as ten.
   const diff = await exec('git', [
     '-C',
     repoDir,
@@ -151,34 +153,19 @@ export async function squashCommits(repoDir: string, base: string, message: stri
   if (diff.status !== 1)
     throw new Error(`git diff --quiet ${from}..HEAD failed (${diff.status})\n${diff.stdout.trimEnd()}`)
 
-  // One commit is already the landing commit when its whole message is exactly what the caller
-  // passed. Otherwise the draft message — subject and body — is replaced, not merged.
+  // The branch may already carry the landing commit — one commit whose whole message is already
+  // what the caller passed. Nothing to do then: same bytes, same sha. `%B` is subject and body
+  // together, so a multi-line title compares as one string too.
   if (before === 1) {
-    const subject = await exec('git', [
+    const existing = await exec('git', [
       '-C',
       repoDir,
       'log',
       '-1',
-      '--format=%s',
+      '--format=%B',
     ])
-    const body = await exec('git', [
-      '-C',
-      repoDir,
-      'log',
-      '-1',
-      '--format=%b',
-    ])
-    if (subject.stdout.trim() === message && body.stdout.trim() === '')
+    if (existing.stdout.trim() === message.trim())
       return 1
-    await run('git', [
-      '-C',
-      repoDir,
-      'commit',
-      '--amend',
-      '-m',
-      message,
-    ])
-    return 1
   }
 
   await run('git', ['-C', repoDir, 'reset', '--soft', from])
