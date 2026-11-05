@@ -38,7 +38,8 @@
     "prepare": "npm run build",
     "prepack": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest",
+    "test:e2e": "vitest run tests/e2e",
+    "test:unit": "vitest run tests --exclude=tests/e2e/**",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
