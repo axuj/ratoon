@@ -23,7 +23,7 @@ ratoon list                      show the pool
 - **One task, one commit.** `finish` squashes the branch and lands your `-m` verbatim; the drafts
   you committed along the way never reach the base. Undoing a task is `git revert <sha>`.
 - **Hooks outside the worktree.** `<root>/.ratoon/hooks.ts` is shared by every slot and every
-  branch, copied in by `init`, typechecked by `tsc`, imported by nothing at runtime.
+  branch, copied in by `init`, typechecked by `tsc`, executed by Node's type stripping.
 - **No remote, no surprises.** A slot manager should not fetch, pull or push. Local `<base>` is the
   single source of truth; moving it is your call.
 
@@ -67,9 +67,9 @@ $ ratoon finish add-banner -m "feat(ui): add the banner"
 [4/4] parking slot slot-0 (detached at master, worktree binding kept)
 ```
 
-The message is an input, never derived: `finish` requires `-m` and lands it byte for byte. A
-branch with several commits collapses into that one commit; the branch's own messages are
-discarded.
+The message is an input, never derived: `finish` requires `-m` once the branch has commits and
+lands it byte for byte. A branch with several commits collapses into that one commit; the branch's
+own messages are discarded.
 
 ## Docs
 
@@ -78,7 +78,7 @@ discarded.
 
 Both are copied into `.ratoon/docs/` by `init`, so an agent in a slot reads them as ordinary
 files. `ratoon --help` and `ratoon <command> --help` are always the current reference for flags and
-exit codes.
+commands.
 
 ## Development
 

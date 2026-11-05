@@ -21,10 +21,10 @@ jobs:
       - uses: actions/checkout@v4
 
       # Drop-in for actions/setup-node: installs the nub CLI, provisions Node, caches the store.
-      # `engines.node` is a range (`>=26`), so the exact version is named here instead.
+      # The exact version lives in `.node-version`; `engines.node` is only a range (`>=26`).
       - uses: nubjs/setup-nub@v0
         with:
-          node-version: 26
+          node-version-file: .node-version
 
       - run: nub install --frozen-lockfile
 

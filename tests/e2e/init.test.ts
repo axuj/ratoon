@@ -51,6 +51,8 @@ describe('ratoon init', () => {
     const manifest = readJson(path.join(dir, 'package.json'))
     expect(manifest).toMatchObject({ type: 'module', private: true })
     expect(manifest.dependencies).toBeUndefined()
+    // hooks run through Node's type stripping, so the container itself needs Node >= 26
+    expect(manifest.engines).toEqual({ node: '>=26' })
     expect(manifest.devDependencies).toMatchObject({
       typescript: expect.any(String),
     })

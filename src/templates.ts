@@ -1,15 +1,19 @@
 /** Files `ratoon init` writes into a container. Kept apart from the command so the CLI stays readable. */
 
 /**
- * The container has no runtime dependencies: hooks, plugins and types are files under `.ratoon/`.
- * `typescript` and `@types/node` are here only for `npm run typecheck`, and nothing installs them
- * for you — `npm i` once if you want it.
+ * The container has no runtime dependencies: hooks, plugins and types are files under `.ratoon/`,
+ * executed by Node's own type stripping. That is why `engines` demands Node >= 26, even though
+ * `typescript` and `@types/node` are here only for `npm run typecheck` — nothing installs them
+ * for you, `npm i` once if you want it.
  */
 export function packageJson(name: string): string {
   return `${JSON.stringify({
     name,
     type: 'module',
     private: true,
+    engines: {
+      node: '>=26',
+    },
     scripts: {
       typecheck: 'tsc --noEmit',
     },
