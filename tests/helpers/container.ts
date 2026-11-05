@@ -33,9 +33,12 @@ export interface CliResult {
  * A throwaway `<root>/<main-repo>` container.
  * `.gitattributes` pins eol=lf so a package manager rewriting package-lock.json does not leave a
  * line-ending-only dirty tree — the exact trap lynx-solid documents for its generated files.
+ * Dependencies are not installed by default: `installDeps` (or `{ install: true }`) is the opt-in
+ * for the few cases that need a real `node_modules`.
  */
-export async function makeContainer(opts: { withPackageJson?: boolean } = {}): Promise<Container> {
+export async function makeContainer(opts: { withPackageJson?: boolean, install?: boolean } = {}): Promise<Container> {
   const withPackageJson = opts.withPackageJson ?? true
+  const install = opts.install ?? false
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'ratoon e2e '))
   const root = path.join(tmp, 'root')
   const proj = path.join(root, 'proj')
@@ -74,7 +77,7 @@ export async function makeContainer(opts: { withPackageJson?: boolean } = {}): P
     'user.name',
     'ratoon',
   ], { quiet: true })
-  if (withPackageJson)
+  if (withPackageJson && install)
     await run('npm', ['install', '--no-audit', '--no-fund'], { cwd: proj, quiet: true })
   await run('git', ['-C', proj, 'add', '-A'], { quiet: true })
   await run('git', ['-C', proj, 'commit', '-m', 'init'], { quiet: true })
@@ -85,6 +88,31 @@ export async function makeContainer(opts: { withPackageJson?: boolean } = {}): P
     proj,
     dispose: () => disposeDir(tmp),
   }
+}
+
+/**
+ * Install the fixture's dependencies on demand. Most cases only exercise git and the CLI, so the
+ * default container is dependency-free; the few that need a real `node_modules` ask for it here.
+ * The lockfile is committed, so the slot starts from a clean tree — the same state the old
+ * always-install container produced.
+ */
+export async function installDeps(container: Container): Promise<void> {
+  await run('npm', ['install', '--no-audit', '--no-fund'], {
+    cwd: container.proj,
+    quiet: true,
+  })
+  await run('git', ['-C', container.proj, 'add', '-A'], {
+    quiet: true,
+  })
+  await run('git', [
+    '-C',
+    container.proj,
+    'commit',
+    '-m',
+    'install deps',
+  ], {
+    quiet: true,
+  })
 }
 
 /**

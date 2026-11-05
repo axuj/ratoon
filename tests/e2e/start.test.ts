@@ -9,6 +9,7 @@ import {
   gitOut,
   gitStatus,
   hooksLine,
+  installDeps,
   makeContainer,
   parkSlot,
   readRootFile,
@@ -84,6 +85,9 @@ describe('ratoon start', () => {
   })
 
   it('lets the built-in install plugin own dependencies: install, skip, reinstall', async () => {
+    // the only case here that proves a real install: the committed lockfile makes the fingerprint
+    // stable, so the second start can genuinely skip
+    await installDeps(c)
     writeHooks(c, INSTALL)
 
     const first = await start(c, 'first-round')
