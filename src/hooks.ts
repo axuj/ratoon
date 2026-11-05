@@ -26,6 +26,8 @@ export interface HookFacts {
 export interface HookRunner {
   /** false when `<root>/.ratoon/hooks.ts` is absent — every call below becomes a no-op */
   present: boolean
+  /** Plugins the file exports: 0 when it is absent, empty, or has no usable array default. */
+  count: number
   /** Run the plugins that implement `lifecycle`, in array order. Returns their names. */
   run: (lifecycle: Lifecycle) => Promise<string[]>
 }
@@ -34,13 +36,20 @@ export function hookPath(rootDir: string): string {
   return path.join(rootDir, '.ratoon', 'hooks.ts')
 }
 
-/** The `plugins:` line every command prints — `none` / `loaded` / `loaded (a, b)`. */
-export function describeHooks(present: boolean, ran: readonly string[]): string {
+/**
+ * The `plugins:` line every command prints. Three states matter, and they used to collapse into
+ * one: nothing installed, a file that enables nothing, and plugins that simply do not implement
+ * this lifecycle. The first two look identical to a user who just ran `init` and is wondering why
+ * nothing installed.
+ */
+export function describeHooks(present: boolean, ran: readonly string[], count: number): string {
   if (!present)
     return 'none'
+  if (count === 0)
+    return 'loaded (no plugins)'
   return ran.length
     ? `loaded (${ran.join(', ')})`
-    : 'loaded'
+    : 'loaded (none)'
 }
 
 function stack(err: unknown): string {
@@ -83,6 +92,7 @@ export async function loadHooks(facts: HookFacts): Promise<HookRunner> {
   const file = hookPath(facts.rootDir)
   const inert: HookRunner = {
     present: false,
+    count: 0,
     run: async () => [],
   }
   if (!exists(file))
@@ -111,12 +121,14 @@ export async function loadHooks(facts: HookFacts): Promise<HookRunner> {
   if (!plugins) {
     return {
       present: true,
+      count: 0,
       run: async () => [],
     }
   }
 
   return {
     present: true,
+    count: plugins.length,
     async run(lifecycle) {
       const entries: { by: string, fn: LifecycleHook }[] = []
       for (const plugin of plugins) {

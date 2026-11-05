@@ -81,7 +81,29 @@ describe('ratoon start', () => {
   it('reports a lifecycle as untouched when no plugin implements it', async () => {
     writeHooks(c, `export default [{ name: 'only-finish', onFinish() {} }]\n`)
     const result = await start(c, 'only-finish')
-    expect(hooksLine(result.stdout)).toBe('plugins : loaded')
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (none)')
+  })
+
+  it('says so when the hook file enables nothing, and points at the starters', async () => {
+    writeHooks(c, 'export default []\n')
+    const result = await start(c, 'empty-hooks')
+
+    expect(result.status).toBe(0)
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (no plugins)')
+    expect(result.stdout).toContain('.ratoon/hooks.ts enables no plugins')
+  })
+
+  it('warns that uncommitted work in the main worktree is not in the slot', async () => {
+    const result = await start(c, 'dirty-main')
+
+    expect(result.status).toBe(0)
+    // the container fixture is committed by makeContainer, so this run is clean
+    expect(result.stderr).not.toContain('uncommitted')
+
+    writeFile(path.join(c.proj, 'README.md'), 'edited in main\n')
+    const second = await start(c, 'dirty-main-again')
+    expect(second.stderr).toContain('main worktree has')
+    expect(second.stderr).toContain('not in it')
   })
 
   it('lets the built-in install plugin own dependencies: install, skip, reinstall', async () => {

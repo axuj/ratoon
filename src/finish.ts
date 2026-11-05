@@ -247,7 +247,7 @@ async function landTask(ctx: FinishContext): Promise<void> {
   })
   console.log('\n[2/4] onFinish\n')
   const ranHooks = await hooks.run('onFinish')
-  console.log(`  plugins : ${describeHooks(hooks.present, ranHooks)}\n`)
+  console.log(`  plugins : ${describeHooks(hooks.present, ranHooks, hooks.count)}\n`)
 
   const status = await exec('git', [
     '-C',

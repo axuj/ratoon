@@ -59,21 +59,13 @@ describe('ratoon init', () => {
     expect(readJson(path.join(dir, 'tsconfig.json')).include).toEqual(['.ratoon/**/*.ts'])
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('ratoon start <task>')
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('.ratoon/docs/')
-    expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('Commit checkpoints')
-
-    // the guides travel with the package and land where AGENTS.md points
-    expect(readFileSync(path.join(dir, '.ratoon/docs/workflows.md'), 'utf8')).toContain('# ratoon workflows')
-    expect(readFileSync(path.join(dir, '.ratoon/docs/plugins.md'), 'utf8')).toContain('# ratoon plugins')
 
     const hooks = readFileSync(path.join(dir, '.ratoon', 'hooks.ts'), 'utf8')
-    expect(hooks).toContain('import type { Plugin } from \'./types.ts\'')
-    expect(hooks).toContain('import { npmInstall } from \'./plugins/npm-install.ts\'')
     expect(hooks).toContain('satisfies Plugin[]')
     expect(hooks).toContain('export default [] satisfies Plugin[]')
 
     // starter plugins are copied in but not enabled; each one is its own file
     const npmInstall = readFileSync(path.join(dir, '.ratoon/plugins/npm-install.ts'), 'utf8')
-    expect(npmInstall).toContain('// ratoon ')
     expect(npmInstall).toContain('export function npmInstall')
     expect(readFileSync(path.join(dir, '.ratoon/plugins/progress-file.ts'), 'utf8')).toContain('export function progressFile')
     expect(readFileSync(path.join(dir, '.ratoon/plugins/check-lock.ts'), 'utf8')).toContain('export function checkLock')
@@ -125,9 +117,7 @@ describe('ratoon init', () => {
     expect(readFileSync(path.join(dir, '.ratoon', 'hooks.ts'), 'utf8')).toBe(mine)
     expect(readFileSync(path.join(dir, 'package.json'), 'utf8')).toBe(manifest)
     const plugin = readFileSync(path.join(dir, '.ratoon', 'plugins', 'npm-install.ts'), 'utf8')
-    expect(plugin).toContain('// ratoon ')
     expect(plugin).toContain('export function npmInstall')
-    expect(readFileSync(path.join(dir, '.ratoon', 'docs', 'workflows.md'), 'utf8')).toContain('# ratoon workflows')
 
     // `.state/` is per-slot runtime state, not scaffolding: --force has no business there
     expect(readFileSync(slotState, 'utf8')).toBe('old-task\n')

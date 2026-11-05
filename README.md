@@ -22,6 +22,8 @@ ratoon list                      show the pool
   installed or built is still there when the next one starts.
 - **One task, one commit.** `finish` squashes the branch and lands your `-m` verbatim; the drafts
   you committed along the way never reach the base. Undoing a task is `git revert <sha>`.
+- **Parallel by construction.** A slot is a directory plus one claim file, so several tasks — or
+  several agents — start at once instead of queueing; `finish` lands them one at a time.
 - **Hooks outside the worktree.** `<root>/.ratoon/hooks.ts` is shared by every slot and every
   branch, copied in by `init`, typechecked by `tsc`, executed by Node's type stripping.
 - **No remote, no surprises.** A slot manager should not fetch, pull or push. Local `<base>` is the
@@ -36,6 +38,9 @@ ratoon init                # writes the container, installs nothing
 # move or clone the repository you want to work on under my-wt/
 ratoon start add-banner
 ```
+
+Task names are kebab-case (`add-banner`): the name *is* the branch (`feature/add-banner`), so it is
+validated before any git command runs instead of failing inside git afterwards.
 
 `init` writes a container:
 

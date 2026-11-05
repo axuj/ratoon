@@ -257,7 +257,27 @@ export function hoistGlobalOptions(rawArgs: string[]): string[] {
   ]
 }
 
+/**
+ * The compiled CLI runs on whatever Node the user has, so an old one fails late and cryptically —
+ * `ERR_UNKNOWN_FILE_EXTENSION` while importing `.ratoon/hooks.ts`, which says nothing about the
+ * version. Decide from the version string here, before any command touches the disk.
+ */
+export function nodeVersionError(current: string): string | undefined {
+  const major = Number.parseInt(current.replace(/^v/, '').split('.')[0] ?? '', 10)
+  if (!Number.isFinite(major) || major >= 26)
+    return undefined
+  return `ratoon requires Node >= 26 (found ${current.startsWith('v')
+    ? current
+    : `v${current}`})`
+}
+
 export async function main(rawArgs = process.argv.slice(2)): Promise<void> {
+  const tooOld = nodeVersionError(process.versions.node)
+  if (tooOld) {
+    console.error(tooOld)
+    process.exitCode = 1
+    return
+  }
   await runMain(cli, {
     rawArgs: hoistGlobalOptions(rawArgs),
   })

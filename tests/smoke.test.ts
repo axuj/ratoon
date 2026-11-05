@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { cli, hoistGlobalOptions } from '../src/cli.ts'
+import { cli, hoistGlobalOptions, nodeVersionError } from '../src/cli.ts'
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 
@@ -139,4 +139,22 @@ describe('hoistGlobalOptions', () => {
       expect(hoistGlobalOptions(input)).toEqual(expected)
     })
   }
+})
+
+describe('node version guard', () => {
+  it('refuses the majors that cannot strip types out of .ts hook files', () => {
+    expect(nodeVersionError('22.11.0')).toBe('ratoon requires Node >= 26 (found v22.11.0)')
+    expect(nodeVersionError('v24.1.0')).toBe('ratoon requires Node >= 26 (found v24.1.0)')
+  })
+
+  it('lets everything from 26 on through', () => {
+    expect(nodeVersionError('26.12.1')).toBeUndefined()
+    expect(nodeVersionError('v26.0.0')).toBeUndefined()
+    expect(nodeVersionError('28.1.0')).toBeUndefined()
+  })
+
+  it('stays out of the way when the version string is unparseable', () => {
+    expect(nodeVersionError('')).toBeUndefined()
+    expect(nodeVersionError('not-a-version')).toBeUndefined()
+  })
 })

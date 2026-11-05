@@ -16,9 +16,11 @@ function message(err: unknown): string {
 
 export async function runStart(opts: RatoonOptions, task: string): Promise<void> {
   const layout = resolveLayout(opts.root, opts.main)
-  const base = await resolveBaseRef(opts, layout.mainDir)
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout
+
+  const base = await resolveBaseRef(opts, layout.mainDir)
+  await warnUncommittedMain(mainDir, base)
 
   let slot: PoolSlot | undefined
   let isNew = false
@@ -158,8 +160,12 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
     console.log(`\n[3/3] slot ${claimed} ready (${isNew ? 'new' : 'reused'})\n`)
     console.log(
       `  branch  : ${branch}\n  worktree: ${slotDir}\n  base    : ${base}\n`
-      + `  plugins : ${describeHooks(hooks.present, ranHooks)}\n`,
+      + `  plugins : ${describeHooks(hooks.present, ranHooks, hooks.count)}\n`,
     )
+    // The most common first-run surprise: `init` writes hooks.ts with an empty array, so nothing
+    // installs and the slot looks broken. Say so once here, where the consequence shows up.
+    if (hooks.present && hooks.count === 0)
+      console.log('  hint    : .ratoon/hooks.ts enables no plugins — starters live in .ratoon/plugins/\n')
   }
   catch (err) {
     try {
@@ -170,4 +176,19 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
     }
     throw new Error(`start failed: ${message(err)}`)
   }
+}
+
+/**
+ * A slot branches from the base *commit*, so edits sitting in the main worktree do not exist in it.
+ * Warn instead of refusing: starting from a clean base is a legitimate choice.
+ */
+async function warnUncommittedMain(mainDir: string, base: string): Promise<void> {
+  const status = await exec('git', ['-C', mainDir, 'status', '--porcelain'])
+  const entries = status.stdout.split('\n').filter(line => line.trim().length > 0)
+  if (entries.length === 0)
+    return
+  const plural = entries.length === 1
+    ? 'entry'
+    : 'entries'
+  console.warn(`  warning : main worktree has ${entries.length} uncommitted ${plural} — the slot branches from ${base}, so they are not in it`)
 }

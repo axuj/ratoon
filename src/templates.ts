@@ -67,6 +67,8 @@ ratoon list
 3. Anything that is not repo content — notes, logs, locks — goes to \`.state/<slot>/\`, never
    into the worktree.
 4. \`--base\` is a starting point, not a merge target — keep dependent tasks in order.
+5. Land only when asked: \`finish\` is the one command that moves the base, so leave the task
+   checked out in its slot until the user says to land it.
 
 ## Container
 
