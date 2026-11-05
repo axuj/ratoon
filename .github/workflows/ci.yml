@@ -6,45 +6,29 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: ${{ matrix.os }} / node ${{ matrix.node }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # both platforms on purpose: the shell layer and the e2e suites are the parts that
-        # differ, and Windows is the one this project is developed on
-        os: [ubuntu-latest, windows-latest]
-        node: [26]
-
+  ci:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      # Must precede setup-nub: the action resolves the Node pin and the lockfile from the checkout.
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v7
+      # Drop-in for actions/setup-node: installs the nub CLI, provisions Node, caches the store.
+      # `engines.node` is a range (`>=26`), so the exact version is named here instead.
+      - uses: nubjs/setup-nub@v0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 26
 
-      # the pinned packageManager is nub@0.9.7; installing the same version from npm means
-      # nub never tries to provision a second copy
-      - name: install nub
-        run: npm install --global @nubjs/nub
+      - run: nub install --frozen-lockfile
 
-      - name: install dependencies
-        run: nub ci
-
-      - name: lint
-        run: nub run lint
-
-      - name: typecheck
-        run: nub run typecheck
-
-      - name: build
-        run: nub run build
-
-      - name: test
-        run: nub run test
+      - run: nub run lint
+      - run: nub run typecheck
+      - run: nub run build
+      - run: nub run test
