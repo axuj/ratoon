@@ -1,0 +1,68 @@
+name: Release
+
+# Publishes the `ratoon` package when a `v*` tag is pushed. `workflow_dispatch`
+# only does a dry run (`npm pack --dry-run`); this workflow never creates tags.
+#
+# Auth is OIDC (npm trusted publishing): no NPM_TOKEN secret exists. The trusted
+# publisher on npmjs.com must list this repository (`axuj/ratoon`) and this
+# workflow (`release.yml`); provenance is attached automatically in that mode.
+#
+# The first release of a brand-new package cannot be trusted-published (the
+# package page does not exist yet), so ratoon@0.1.0 was bootstrapped manually
+# from a workstation. Configure the trusted publisher once the page exists;
+# tag releases fail until it is in place.
+#
+# The registry comes from `publishConfig` in package.json, so `npm publish` is
+# not given a `--registry` flag.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # Must precede setup-nub: the action resolves the Node pin and the lockfile from the checkout.
+      - uses: actions/checkout@v4
+
+      # Drop-in for actions/setup-node: installs the nub CLI, provisions Node, caches the store.
+      # `engines.node` is a range (`>=26`), so the exact version comes from `.node-version`.
+      - uses: nubjs/setup-nub@v0
+        id: setup
+        with:
+          node-version-file: .node-version
+
+      - run: nub install --frozen-lockfile
+
+      - run: nub run lint
+      - run: nub run typecheck
+      - run: nub run build
+      - run: nub run test
+
+      - name: Check the tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package version v$version"
+            exit 1
+          fi
+
+      - name: Stage and pack (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: github.event_name == 'push'
+        run: npm publish --access public --provenance
