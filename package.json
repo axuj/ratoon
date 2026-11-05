@@ -1,0 +1,53 @@
+{
+  "name": "ratoon",
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "nub@0.9.7",
+  "description": "Worktree slot pool CLI with container-level lifecycle hooks",
+  "author": "axuj",
+  "license": "MIT",
+  "repository": "github:axuj/ratoon",
+  "keywords": [
+    "git",
+    "worktree",
+    "worktree-pool",
+    "slot",
+    "cli"
+  ],
+  "bin": {
+    "ratoon": "./dist/cli.js"
+  },
+  "files": [
+    "README.md",
+    "dist",
+    "docs",
+    "src/plugins",
+    "src/types.ts"
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{ recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "demo": "node scripts/demo.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "citty": "^0.2.2",
+    "dax": "^0.50.2"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^10.0.0",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# scratch containers
+tests/.tmp/
+wt-demo/
