@@ -77,29 +77,34 @@ export function refuseSelf(dir: string): void {
     throw new Error('refusing to init ratoon inside itself — point --root at a fresh directory')
 }
 
-function listEntries(dir: string): string[] {
-  if (!existsSync(dir))
-    return []
-  return readdirSync(dir)
-}
+/**
+ * Everything `init` puts in the container root. A directory holding anything else — the repository
+ * you cloned into it, notes, other checkouts — is the normal case, not a conflict.
+ */
+const SCAFFOLD_PATHS = [
+  'package.json',
+  'tsconfig.json',
+  '.gitignore',
+  'AGENTS.md',
+  '.ratoon',
+] as const
 
 /**
- * `init`'s safety rule: a directory with something in it must be named explicitly — unless it
- * already is a ratoon container, in which case re-running is the point.
+ * `init`'s safety rule: it never writes over a file it did not write. So the question is not
+ * whether the directory is empty but whether scaffolding would clash with something already there
+ * — an unrelated file next to `<main-repo>/` blocks nothing.
  */
 export function ensureWritable(dir: string, force: boolean): void {
-  const existing = listEntries(dir)
-  if (existing.length === 0 || force)
+  if (force)
     return
-  if (existsSync(path.join(dir, '.ratoon', 'hooks.ts')))
+  const clashes = SCAFFOLD_PATHS.filter(name => existsSync(path.join(dir, name)))
+  if (clashes.length === 0)
+    return
+  if (existsSync(path.join(dir, '.ratoon', 'types.ts')))
     return // an existing container: init fills in what is missing, never overwrites
-  const shown = existing.slice(0, 8).join(', ')
-  const more = existing.length > 8
-    ? `, … (${existing.length} entries)`
-    : ''
   throw new Error(
-    `${dir} is not empty: ${shown}${more}\n`
-    + 'ratoon init writes into a fresh container — pass --force to add the missing files here.',
+    `${dir} already holds ${clashes.join(', ')}\n`
+    + 'ratoon init would scaffold those — pass --force to add the missing files and keep yours.',
   )
 }
 
@@ -193,9 +198,19 @@ export async function runInit(opts: RatoonOptions, flags: InitFlags): Promise<vo
 
   console.log(`
 Done. Next steps:
-  1. put your repository somewhere under ${dir} (ratoon auto-detects the only dir whose .git is a directory)
+  ${repositoryStep(dir)}
   2. edit .ratoon/hooks.ts — optional starter plugins live in .ratoon/plugins/ (npmInstall / progressFile / checkLock), yours to edit
   3. run \`npm i\` if you want \`npm run typecheck\` (nothing else needs it)
   4. ratoon start <task> --root ${dir}
 `)
+}
+
+/** The repository may already be in place — the natural order is clone first, scaffold second. */
+function repositoryStep(dir: string): string {
+  const repos = readdirSync(dir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && existsSync(path.join(dir, entry.name, '.git')))
+    .map(entry => entry.name)
+  if (repos.length === 1)
+    return `1. repository: ${repos[0]} — \`ratoon list\` shows the pool`
+  return `1. put your repository somewhere under ${dir} (ratoon auto-detects the only dir whose .git is a directory)`
 }

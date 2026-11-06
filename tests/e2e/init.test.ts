@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { disposeDir, ratoon, readJson } from '../helpers/container.ts'
+import { disposeDir, gitOut, ratoon, readJson } from '../helpers/container.ts'
 
 const RATOON_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const TSC = fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url))
@@ -81,18 +81,32 @@ describe('ratoon init', () => {
     expect(typecheck.status, typecheck.stdout + typecheck.stderr).toBe(0)
   })
 
-  it('refuses a non-empty directory and writes nothing', async () => {
+  it('scaffolds around whatever it does not write', async () => {
     const dir = freshDir()
-    const existing = path.join(dir, 'something.txt')
-    writeFileSync(existing, 'do not touch\n')
+    // the common order: the repository is already in the container when init runs
+    mkdirSync(path.join(dir, 'proj'), { recursive: true })
+    gitOut(path.join(dir, 'proj'), 'init', '-b', 'master')
+    const mine = path.join(dir, 'notes.txt')
+    writeFileSync(mine, 'mine\n')
+
+    const result = await ratoon(['init', '--root', dir])
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('repository: proj')
+    expect(existsSync(path.join(dir, 'AGENTS.md'))).toBe(true)
+    expect(readFileSync(mine, 'utf8')).toBe('mine\n')
+  })
+
+  it('refuses to scaffold over a file it would write, and writes nothing', async () => {
+    const dir = freshDir()
+    const existing = path.join(dir, 'package.json')
+    writeFileSync(existing, '{"name":"mine"}\n')
 
     const result = await ratoon(['init', '--root', dir])
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('is not empty')
-    expect(result.stderr).toContain('something.txt')
+    expect(result.stderr).toContain('already holds package.json')
     expect(result.stderr).toContain('--force')
-    expect(readFileSync(existing, 'utf8')).toBe('do not touch\n')
-    expect(existsSync(path.join(dir, 'package.json'))).toBe(false)
+    expect(readFileSync(existing, 'utf8')).toBe('{"name":"mine"}\n')
+    expect(existsSync(path.join(dir, 'tsconfig.json'))).toBe(false)
   })
 
   it('refreshes only the files ratoon owns — --force never touches your hooks', async () => {
