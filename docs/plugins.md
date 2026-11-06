@@ -6,11 +6,11 @@ engine itself knows nothing about installs, builds or notes.
 ```ts
 import type { Plugin } from './types.ts'
 import { npmInstall } from './plugins/npm-install.ts'
-import { progressFile } from './plugins/progress-file.ts'
+import { taskNotes } from './plugins/task-notes.ts'
 
 export default [
   npmInstall(),
-  progressFile(),
+  taskNotes(),
   {
     name: 'build',
     onStart({ slotDir }) {
@@ -22,7 +22,7 @@ export default [
 
 `hooks.ts` default-exports one **ordered array**. Array order is execution order, independently
 for each lifecycle. Everything is a plugin — your own code included; there is no separate "host"
-position. `init` writes an empty array; the starter plugins under `./plugins/` are opt-in.
+position. `init` enables `taskNotes()`; the other starter plugins under `./plugins/` are opt-in.
 
 ## Lifecycles
 
@@ -74,14 +74,14 @@ dirty, and the next `start` removes it with `git clean -fd`.
 
 ## Starter plugins in `plugins/`
 
-Each starter is its own file, copied into the container. None is enabled; import only what
-`hooks.ts` needs, or delete the directory.
+Each starter is its own file, copied into the container. `init` enables `taskNotes()`; import any
+of the others that `hooks.ts` needs, or delete the directory. `taskNotes()` is the only starter
+that cannot touch the repository — it writes under `.state/`, never in a worktree.
 
 | plugin | does |
 |---|---|
 | `npmInstall(opts?)` | Detects the package manager (`packageManager` / `devEngines.packageManager`, then lockfiles), fingerprints the slot's manifests under `.state/`, and skips when nothing changed. `defaultManagers` and `detectManager` live in `plugins/shared.ts` if you need to inspect or replace the table. |
-| `progressFile(opts?)` | Writes `.state/<slot>/TASK.md` on start, prints its path, and warns about unchecked boxes at finish. |
-| `checkLock()` | Refuses to land when the package manager rewrote a lockfile that was not committed, and prints the exact `git add` + `commit`. |
+| `taskNotes(opts?)` | Writes `.state/<slot>/TASK.md` on start — a plan section first, for whoever picks the slot up next — prints its path, and warns about unchecked boxes at finish. |
 
 ## Typechecking, not runtime validation
 

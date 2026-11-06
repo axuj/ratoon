@@ -74,20 +74,19 @@ function isContainer(dir: string): boolean {
 
 /**
  * The demo is a workbench, not `init`: it explicitly enables the starter plugins and a build
- * plugin so one run exercises install, notes, build and checkLock.
+ * plugin so one run exercises install, task notes and build.
  */
 function writeDemoHooks(dir: string): void {
   const hooks = `import type { Plugin } from './types.ts'
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { checkLock } from './plugins/check-lock.ts'
 import { npmInstall } from './plugins/npm-install.ts'
-import { progressFile } from './plugins/progress-file.ts'
+import { taskNotes } from './plugins/task-notes.ts'
 
 export default [
   npmInstall(),
-  progressFile(),
+  taskNotes(),
   {
     name: 'build',
     onStart({ slotDir }) {
@@ -96,7 +95,6 @@ export default [
       execSync('npm run build', { cwd: slotDir, stdio: 'inherit' })
     },
   },
-  checkLock(),
 ] satisfies Plugin[]
 `
   writeFileSync(path.join(dir, '.ratoon', 'hooks.ts'), hooks)

@@ -73,10 +73,12 @@ ratoon list
 ## Container
 
 \`\`\`
-.ratoon/hooks.ts   the plugin list — the only place project-specific logic lives
-.ratoon/plugins/   optional starters, not enabled
-.ratoon/types.ts   hook types
-.ratoon/docs/      workflows.md · plugins.md
+.state/<slot>/TASK.md   the slot's notes — plan before you start, findings as you go.
+                        Whoever picks the slot up after a kill reads it first.
+.ratoon/hooks.ts       the plugin list — the only place project-specific logic lives
+.ratoon/plugins/       optional starters — taskNotes is on, the rest opt-in
+.ratoon/types.ts       hook types
+.ratoon/docs/          workflows.md · plugins.md
 \`\`\`
 
 Read \`.ratoon/docs/\` before touching hooks or doing anything non-trivial with slots.
@@ -84,23 +86,22 @@ Read \`.ratoon/docs/\` before touching hooks or doing anything non-trivial with 
 }
 
 export const HOOKS = `import type { Plugin } from './types.ts'
+import { taskNotes } from './plugins/task-notes.ts'
 
 /**
  * Container-level hooks — one ordered plugin array. \`ratoon start\` and \`ratoon finish\` are
  * separate processes, so each lifecycle runs its own pass over the array, in array order.
  *
- * Nothing is enabled by default. Optional starter plugins live in \`./plugins/\`; import only
- * what you want. State shared between callbacks inside one process is a module-level \`let\`.
+ * \`taskNotes()\` is on because it cannot touch the repository: it writes under \`.state/\`, never
+ * in a worktree. \`npmInstall()\` runs a package manager, so it stays opt-in — uncomment it if
+ * your project needs it.
  *
  * import { npmInstall } from './plugins/npm-install.ts'
- * import { progressFile } from './plugins/progress-file.ts'
- * import { checkLock } from './plugins/check-lock.ts'
  *
  * export default [
+ *   taskNotes(),
  *   npmInstall(),
- *   progressFile(),
- *   checkLock(),
  * ] satisfies Plugin[]
  */
-export default [] satisfies Plugin[]
+export default [taskNotes()] satisfies Plugin[]
 `

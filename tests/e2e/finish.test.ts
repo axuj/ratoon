@@ -246,14 +246,15 @@ describe('ratoon finish', () => {
     expect(slotState()).toMatchObject({ busy: true, task: 'dirty-task' })
   })
 
-  it('offers the commit-or-discard hint when versioned files changed', async () => {
+  it('gives a precise discard command when versioned files changed', async () => {
     await start(c, 'tracked-dirty')
     writeFile(path.join(slotDir(c, 'slot-0'), 'README.md'), 'edited\n')
 
     const result = await finish('tracked-dirty')
     expect(result.status).toBe(2)
     expect(result.stderr).toContain('changes to versioned files')
-    expect(result.stderr).toContain('checkout -- .')
+    expect(result.stderr).toContain('checkout -- <file>')
+    expect(result.stderr).not.toContain('checkout -- .')
     expect(result.stderr).not.toContain('untracked leftovers')
     expect(slotState()).toMatchObject({ busy: true })
   })
@@ -268,7 +269,7 @@ describe('ratoon finish', () => {
 
     const result = await finish('scratch-task')
     expect(result.status).toBe(0)
-    expect(hooksLine(result.stdout)).toBe('plugins : loaded (progressFile)')
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (taskNotes)')
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
     expect(slotState()).toMatchObject({ busy: false })
   })

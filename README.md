@@ -53,7 +53,7 @@ my-wt/
 ├─ tsconfig.json        # includes .ratoon/** so the hooks are typechecked
 ├─ AGENTS.md            # the workflow rules, for whoever works in a slot
 ├─ .ratoon/hooks.ts     # the one file with all project-specific logic
-├─ .ratoon/plugins/     # starter plugins — copied in, not enabled
+├─ .ratoon/plugins/     # starter plugins — taskNotes on, the rest opt-in
 ├─ .ratoon/types.ts     # Plugin / LifecycleHook / HookContext
 ├─ .ratoon/docs/        # workflows.md + plugins.md
 └─ .gitignore           # node_modules/ .state/

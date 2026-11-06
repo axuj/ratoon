@@ -4,11 +4,9 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { checkLock } from '../src/plugins/check-lock.ts'
 import { npmInstall } from '../src/plugins/npm-install.ts'
-import { progressFile } from '../src/plugins/progress-file.ts'
 import { defaultManagers, detectManager, statePath } from '../src/plugins/shared.ts'
-import { run } from '../src/shell.ts'
+import { taskNotes } from '../src/plugins/task-notes.ts'
 
 let tmp = ''
 let rootDir = ''
@@ -52,10 +50,6 @@ const OFFLINE: NpmInstallOptions = {
     ['marker.lock', 'node'],
   ],
   args: ['-e', 'require("node:fs").writeFileSync("ran.txt", "ok")'],
-}
-
-async function git(...args: string[]): Promise<void> {
-  await run('git', ['-C', slotDir, ...args], { quiet: true })
 }
 
 describe('defaultManagers', () => {
@@ -119,33 +113,35 @@ describe('detectManager', () => {
   })
 })
 
-describe('progressFile', () => {
+describe('taskNotes', () => {
   it('registers both lifecycles under one name', () => {
-    const plugin = progressFile()
-    expect(plugin.name).toBe('progressFile')
+    const plugin = taskNotes()
+    expect(plugin.name).toBe('taskNotes')
     expect(typeof plugin.onStart).toBe('function')
     expect(typeof plugin.onFinish).toBe('function')
   })
 
   it('writes a skeleton under .state, interpolating the task, branch and slot', () => {
-    progressFile().onStart?.(ctx())
+    taskNotes().onStart?.(ctx())
     const written = readFileSync(path.join(rootDir, '.state', 'slot-0', 'TASK.md'), 'utf8')
     expect(written).toContain('TASK: x')
     expect(written).toContain('feature/x')
     expect(written).toContain(slotDir)
+    // the plan is the part a killed session cannot re-derive, so it is in the template
+    expect(written).toContain('## Plan')
     // nothing lands in the worktree: no gitignore, no dirt, nothing to commit
     expect(existsSync(path.join(slotDir, 'TASK.md'))).toBe(false)
   })
 
   it('says where the notes are, since they are outside the worktree', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    progressFile().onStart?.(ctx())
+    taskNotes().onStart?.(ctx())
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining(path.join('.state', 'slot-0', 'TASK.md')))
   })
 
   it('takes a custom filename and template', () => {
-    progressFile({
+    taskNotes({
       file: 'PROGRESS.md',
       template: ({ task }) => `# ${task}!\n`,
     }).onStart?.(ctx())
@@ -156,7 +152,7 @@ describe('progressFile', () => {
   })
 
   it('leaves the notes in place in onFinish — reading them later is the point', async () => {
-    const plugin = progressFile()
+    const plugin = taskNotes()
     plugin.onStart?.(ctx())
     await plugin.onFinish?.(ctx())
 
@@ -165,20 +161,20 @@ describe('progressFile', () => {
 
   it('warns about unchecked boxes', async () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    progressFile().onStart?.(ctx())
-    // the default template is facts only — the box is something the worker writes
+    taskNotes().onStart?.(ctx())
+    // the default template has no boxes — they are something the worker writes
     appendFileSync(path.join(rootDir, '.state', 'slot-0', 'TASK.md'), '\n- [ ] still todo\n')
-    await progressFile().onFinish?.(ctx())
+    await taskNotes().onFinish?.(ctx())
 
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('unchecked boxes'))
   })
 
   it('can be told not to warn', async () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    progressFile().onStart?.(ctx())
+    taskNotes().onStart?.(ctx())
     // without a box there is nothing to warn about, and the option would be untested
     appendFileSync(path.join(rootDir, '.state', 'slot-0', 'TASK.md'), '\n- [ ] still todo\n')
-    await progressFile({ warnUnchecked: false }).onFinish?.(ctx())
+    await taskNotes({ warnUnchecked: false }).onFinish?.(ctx())
 
     expect(spy).not.toHaveBeenCalled()
   })
@@ -312,46 +308,5 @@ describe('npmInstall', () => {
     }).onStart?.(ctx()))
       .rejects
       .toThrow(/\bnode install \(cwd/)
-  })
-})
-
-describe('checkLock', () => {
-  /** package.json + lock, committed — the state every task starts from. */
-  async function committedSlot(): Promise<void> {
-    writeFileSync(path.join(slotDir, 'package.json'), '{ "name": "x", "version": "1.0.0" }\n')
-    writeFileSync(path.join(slotDir, 'package-lock.json'), '{}\n')
-    await git('init', '-b', 'master')
-    await git('config', 'user.email', 't@t')
-    await git('config', 'user.name', 't')
-    await git('add', '-A')
-    await git('commit', '-m', 'base')
-  }
-
-  it('stays quiet on a clean slot', async () => {
-    await committedSlot()
-    await expect(checkLock().onFinish?.(ctx())).resolves.toBeUndefined()
-  })
-
-  it('refuses to land when only the lockfile moved', async () => {
-    await committedSlot()
-    // the package manager rewrote it; the manifest did not change
-    writeFileSync(path.join(slotDir, 'package-lock.json'), '{ "lockfileVersion": 3 }\n')
-
-    // it names the fix rather than the generic "commit them, or discard them"
-    await expect(checkLock().onFinish?.(ctx())).rejects.toThrow(
-      /package-lock\.json was updated by the package manager[\s\S]*add package-lock\.json/,
-    )
-  })
-
-  it('says nothing when the manifest moved too — the plain dirty check owns that', async () => {
-    await committedSlot()
-    writeFileSync(path.join(slotDir, 'package.json'), '{ "name": "x", "version": "2.0.0" }\n')
-    writeFileSync(path.join(slotDir, 'package-lock.json'), '{ "name": "x", "version": "2.0.0" }\n')
-
-    await expect(checkLock().onFinish?.(ctx())).resolves.toBeUndefined()
-  })
-
-  it('ignores a slot that is not a JS project', async () => {
-    await expect(checkLock().onFinish?.(ctx())).resolves.toBeUndefined()
   })
 })

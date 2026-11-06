@@ -24,6 +24,16 @@ Spending a minute on a subject line that never reaches history is wasted effort.
 The one message worth crafting is the `-m` you pass to `finish`. Commit in the slot, not in the
 main worktree.
 
+## Task notes
+
+By default each `start` writes `.state/<slot>/TASK.md`, and the next `start` in that slot
+overwrites it. Its reader is whoever picks the slot up — possibly the same agent after a kill, or
+another one after a context loss — so write for that reader, not for the commit log.
+
+- Include the plan (one line per step, edited as it changes), findings git cannot hold (why an
+  approach was dropped, what the next person must not retry), and what you did not verify.
+- Leave out anything git already records: changed files, test counts, commit messages.
+
 ## Pick a case
 
 | Goal | Do this |

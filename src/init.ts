@@ -17,10 +17,9 @@ interface InitFlags {
 const TOOL_OWNED = new Set(['.ratoon/types.ts'])
 
 const PLUGIN_FILES = [
-  'check-lock.ts',
   'npm-install.ts',
-  'progress-file.ts',
   'shared.ts',
+  'task-notes.ts',
 ] as const
 
 function isToolOwned(key: string): boolean {
@@ -199,7 +198,7 @@ export async function runInit(opts: RatoonOptions, flags: InitFlags): Promise<vo
   console.log(`
 Done. Next steps:
   ${repositoryStep(dir)}
-  2. edit .ratoon/hooks.ts — optional starter plugins live in .ratoon/plugins/ (npmInstall / progressFile / checkLock), yours to edit
+  2. edit .ratoon/hooks.ts — starter plugins live in .ratoon/plugins/ (taskNotes is on; npmInstall is opt-in), yours to edit
   3. run \`npm i\` if you want \`npm run typecheck\` (nothing else needs it)
   4. ratoon start <task> --root ${dir}
 `)

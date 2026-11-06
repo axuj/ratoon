@@ -22,8 +22,7 @@ const SCAFFOLD = [
   '.ratoon/hooks.ts',
   '.ratoon/types.ts',
   '.ratoon/plugins/npm-install.ts',
-  '.ratoon/plugins/progress-file.ts',
-  '.ratoon/plugins/check-lock.ts',
+  '.ratoon/plugins/task-notes.ts',
   '.ratoon/plugins/shared.ts',
 ]
 

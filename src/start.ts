@@ -162,8 +162,8 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
       `  branch  : ${branch}\n  worktree: ${slotDir}\n  base    : ${base}\n`
       + `  plugins : ${describeHooks(hooks.present, ranHooks, hooks.count)}\n`,
     )
-    // The most common first-run surprise: `init` writes hooks.ts with an empty array, so nothing
-    // installs and the slot looks broken. Say so once here, where the consequence shows up.
+    // The most common first-run surprise: an empty hooks array installs nothing and the slot looks
+    // broken. Say so once here, where the consequence shows up.
     if (hooks.present && hooks.count === 0)
       console.log('  hint    : .ratoon/hooks.ts enables no plugins — starters live in .ratoon/plugins/\n')
   }

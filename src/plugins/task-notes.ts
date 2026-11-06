@@ -3,26 +3,29 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { statePath } from './shared.ts'
 
-export type ProgressFileContext = Pick<HookContext, 'task' | 'branch' | 'slotDir' | 'rootDir' | 'base'>
+export type TaskNotesContext = Pick<HookContext, 'task' | 'branch' | 'slotDir' | 'rootDir' | 'base'>
 
-export interface ProgressFileOptions {
+export interface TaskNotesOptions {
   /** Filename under `<root>/.state/<slot>/`. Default `TASK.md`. */
   file?: string
   /** What to write in `onStart`. Default: a minimal task skeleton. */
-  template?: (ctx: ProgressFileContext) => string
+  template?: (ctx: TaskNotesContext) => string
   /** Warn when the file still has `- [ ]` boxes left at `finish`. Default `true`. */
   warnUnchecked?: boolean
 }
 
-function defaultTemplate(ctx: ProgressFileContext): string {
-  // Facts only: an empty `## Todo` with a placeholder box is something to delete before finish,
-  // not something to fill in. Whoever works the task adds whatever structure they need.
+function defaultTemplate(ctx: TaskNotesContext): string {
+  // Facts are only for orientation — `ratoon list` can re-derive them. The plan is what a killed
+  // session loses, so it comes first; findings get appended below it as they are learned.
   return [
     `# TASK: ${ctx.task}（${ctx.branch}）`,
     '',
     `- 任务：${ctx.task}`,
     `- 分支：${ctx.branch}`,
     `- 槽位：${ctx.slotDir}`,
+    '',
+    '## Plan',
+    '（开工前写，一行一步；边做边改，别留着过期的那版）',
     '',
   ].join('\n')
 }
@@ -35,7 +38,7 @@ function defaultTemplate(ctx: ProgressFileContext): string {
  * Written when a task starts and left in place when it ends. Reading "what was I doing" after a
  * paused finish or an `abandon` is the point; the next task in that slot overwrites the file.
  */
-export function progressFile(options: ProgressFileOptions = {}): Plugin {
+export function taskNotes(options: TaskNotesOptions = {}): Plugin {
   const file = options.file ?? 'TASK.md'
   const template = options.template ?? defaultTemplate
 
@@ -53,5 +56,5 @@ export function progressFile(options: ProgressFileOptions = {}): Plugin {
       console.warn(`warning: ${file} still has unchecked boxes — confirm with the user before merging`)
   }
 
-  return { name: 'progressFile', onStart, onFinish }
+  return { name: 'taskNotes', onStart, onFinish }
 }

@@ -91,7 +91,8 @@ function dirtyError(worktreeDir: string, dirty: string): Error {
     hints.push('  ??        untracked leftovers — delete them (or gitignore them) and re-run finish')
   if (lines.some(line => !line.startsWith('??'))) {
     hints.push(
-      `  <tracked> changes to versioned files — commit them, or discard with \`git -C ${worktreeDir} checkout -- .\``,
+      `  <tracked> changes to versioned files — commit them. Discard only what you know is`,
+      `            noise, naming the file: \`git -C ${worktreeDir} checkout -- <file>\``,
     )
   }
   return new PausedError(`worktree ${worktreeDir} has uncommitted changes, aborting\n${dirty}\n\n${hints.join('\n')}`)

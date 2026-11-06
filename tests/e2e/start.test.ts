@@ -156,11 +156,11 @@ describe('ratoon start', () => {
     expect(existsSync(path.join(slotDir(c, 'slot-0'), 'node_modules'))).toBe(false)
   })
 
-  it('writes the progress file outside the worktree, so the tree stays clean', async () => {
+  it('writes the task notes outside the worktree, so the tree stays clean', async () => {
     writeHooks(c, TASK_FILE)
     const result = await start(c, 'progress')
 
-    expect(hooksLine(result.stdout)).toBe('plugins : loaded (progressFile)')
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (taskNotes)')
     const notes = path.join(c.root, '.state', 'slot-0', 'TASK.md')
     expect(readFileSync(notes, 'utf8')).toContain('TASK: progress')
     expect(result.stdout).toContain('notes   :')

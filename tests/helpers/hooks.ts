@@ -40,10 +40,10 @@ export const INSTALL = `import { npmInstall } from './plugins/npm-install.ts'
 export default [npmInstall()]
 `
 
-/** The real `progressFile` starter plugin — notes under `.state/`, never in the worktree. */
-export const TASK_FILE = `import { progressFile } from './plugins/progress-file.ts'
+/** The real `taskNotes` starter plugin — notes under `.state/`, never in the worktree. */
+export const TASK_FILE = `import { taskNotes } from './plugins/task-notes.ts'
 
-export default [progressFile()]
+export default [taskNotes()]
 `
 
 /** Fails during `ratoon start`, before the slot is handed over. */

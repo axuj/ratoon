@@ -43,7 +43,7 @@ export interface Plugin {
 /**
  * `<root>/.ratoon/hooks.ts` default-exports an array of these:
  *
- *   export default [npmInstall(), progressFile()] satisfies Plugin[]
+ *   export default [taskNotes(), npmInstall()] satisfies Plugin[]
  *
  * Everything is a plugin — your own code included — so there is a single ordered list and no
  * special "host" position. Array order is execution order, independently for each lifecycle:

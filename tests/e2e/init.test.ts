@@ -16,10 +16,9 @@ const SCAFFOLD = [
   'AGENTS.md',
   '.ratoon/hooks.ts',
   '.ratoon/types.ts',
-  '.ratoon/plugins/check-lock.ts',
   '.ratoon/plugins/npm-install.ts',
-  '.ratoon/plugins/progress-file.ts',
   '.ratoon/plugins/shared.ts',
+  '.ratoon/plugins/task-notes.ts',
   '.ratoon/docs/workflows.md',
   '.ratoon/docs/plugins.md',
 ]
@@ -59,16 +58,17 @@ describe('ratoon init', () => {
     expect(readJson(path.join(dir, 'tsconfig.json')).include).toEqual(['.ratoon/**/*.ts'])
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('ratoon start <task>')
     expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('.ratoon/docs/')
+    // where the slot keeps the plan and findings that git cannot hold
+    expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('.state/<slot>/TASK.md')
 
     const hooks = readFileSync(path.join(dir, '.ratoon', 'hooks.ts'), 'utf8')
     expect(hooks).toContain('satisfies Plugin[]')
-    expect(hooks).toContain('export default [] satisfies Plugin[]')
+    expect(hooks).toContain('export default [taskNotes()] satisfies Plugin[]')
 
-    // starter plugins are copied in but not enabled; each one is its own file
+    // starter plugins are copied in; taskNotes is the one enabled, npmInstall stays opt-in
     const npmInstall = readFileSync(path.join(dir, '.ratoon/plugins/npm-install.ts'), 'utf8')
     expect(npmInstall).toContain('export function npmInstall')
-    expect(readFileSync(path.join(dir, '.ratoon/plugins/progress-file.ts'), 'utf8')).toContain('export function progressFile')
-    expect(readFileSync(path.join(dir, '.ratoon/plugins/check-lock.ts'), 'utf8')).toContain('export function checkLock')
+    expect(readFileSync(path.join(dir, '.ratoon/plugins/task-notes.ts'), 'utf8')).toContain('export function taskNotes')
     expect(readFileSync(path.join(dir, '.ratoon/plugins/shared.ts'), 'utf8')).toContain('export function statePath')
 
     // the scaffold typechecks against the copies it carries — no package resolution involved
