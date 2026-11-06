@@ -4,7 +4,7 @@ import path from 'node:path'
 import { PausedError } from './errors.ts'
 import { branchExists, currentBranch, park, rebaseInProgress, revOf, squashCommits } from './git.ts'
 import { describeHooks, loadHooks } from './hooks.ts'
-import { resolveBaseRef, resolveLayout } from './layout.ts'
+import { layoutOf, resolveBaseRef } from './layout.ts'
 import { exec, run } from './shell.ts'
 import { claim, claimOn, clearTask, poolSummary, release, scanPool, slotForTask } from './state.ts'
 
@@ -124,7 +124,7 @@ async function commitsAhead(mainDir: string, base: string, branch: string): Prom
 }
 
 export async function runFinish(opts: RatoonOptions, task: string, title: string): Promise<void> {
-  const layout = resolveLayout(opts.root, opts.main)
+  const layout = layoutOf(opts)
   const base = await resolveBaseRef(opts, layout.mainDir)
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout

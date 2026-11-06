@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { branchExists, currentBranch, deleteBranchIfUnchanged, park, pruneWorktrees } from './git.ts'
 import { describeHooks, loadHooks } from './hooks.ts'
-import { resolveBaseRef, resolveLayout } from './layout.ts'
+import { layoutOf, resolveBaseRef } from './layout.ts'
 import { exec, rmrf, run } from './shell.ts'
 import { claim, clearTask, isFree, release, scanPool } from './state.ts'
 
@@ -15,7 +15,7 @@ function message(err: unknown): string {
 }
 
 export async function runStart(opts: RatoonOptions, task: string): Promise<void> {
-  const layout = resolveLayout(opts.root, opts.main)
+  const layout = layoutOf(opts)
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout
 

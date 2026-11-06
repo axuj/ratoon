@@ -31,6 +31,8 @@ process.stderr.on('error', discardBrokenPipe)
 export interface RatoonOptions {
   /** worktrees container directory — holds the main repo, the slots and their state */
   root: string
+  /** `--root` was passed: an explicit root is used as-is, never searched for */
+  rootGiven: boolean
   /** main repository inside root, relative paths are resolved against root ("" = auto-detect) */
   main: string
   /** base ref: starting point on start, rebase target on finish (finish still merges into main's HEAD) */
@@ -98,6 +100,7 @@ interface SharedArgValues {
 function toOptions(args: SharedArgValues): RatoonOptions {
   return {
     root: path.resolve(args.root ?? process.cwd()),
+    rootGiven: args.root !== undefined,
     main: args.main ?? '',
     base: args.base ?? '',
     baseAuto: args.base === undefined,

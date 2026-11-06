@@ -4,8 +4,10 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   finish,
+  gitOut,
   makeContainer,
   ratoon,
+  slotDir,
   start,
 } from '../helpers/container.ts'
 
@@ -53,6 +55,43 @@ describe('ratoon list', () => {
     expect(result.stdout).toContain(`root: ${c.root}`)
     expect(result.stdout).toContain(`main: ${path.join(c.root, 'proj')}`)
     expect(result.stdout).toMatch(/slot-0\s+busy\s+alpha\s+feature\/alpha/)
+  })
+
+  it('finds the container from inside the repository it manages', async () => {
+    await start(c, 'alpha')
+
+    const result = await ratoon(['list'], { cwd: c.proj })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain(`root: ${c.root}`)
+    expect(result.stdout).toMatch(/slot-0\s+busy\s+alpha\s+feature\/alpha/)
+  })
+
+  it('finds the container from a subdirectory of a slot', async () => {
+    await start(c, 'alpha')
+
+    const result = await ratoon(['list'], {
+      cwd: path.join(slotDir(c, 'slot-0'), 'vendor'),
+    })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain(`root: ${c.root}`)
+  })
+
+  it('takes an explicit --root as given, never walking up from it', async () => {
+    const inner = path.join(c.proj, 'vendor', 'tiny')
+
+    const result = await ratoon(['list', '--root', inner])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(`no main git repository found under ${inner}`)
+  })
+
+  it('does not mistake a repository that merely lives somewhere for a container', async () => {
+    const outside = path.join(c.tmp, 'outside')
+    mkdirSync(outside, { recursive: true })
+    gitOut(outside, 'init', '-b', 'master')
+
+    const result = await ratoon(['list'], { cwd: outside })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('no ratoon container found')
   })
 
   it('shows a parked slot as free and detached once it is finished', async () => {

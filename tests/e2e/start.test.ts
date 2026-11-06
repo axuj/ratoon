@@ -12,6 +12,7 @@ import {
   installDeps,
   makeContainer,
   parkSlot,
+  ratoon,
   readRootFile,
   slotBranch,
   slotDir,
@@ -68,6 +69,13 @@ describe('ratoon start', () => {
     expect(existsSync(path.join(c.root, '.ratoon', 'hooks.ts'))).toBe(true)
     expect(existsSync(path.join(slotDir(c, 'slot-0'), '.ratoon'))).toBe(false)
     expect(slotTask(c)).toBe('hooked')
+  })
+
+  it('starts from inside the repository, finding the container by walking up', async () => {
+    const result = await ratoon(['start', 'from-inside'], { cwd: c.proj })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain(`worktree: ${slotDir(c, 'slot-0')}`)
+    expect(slotTask(c)).toBe('from-inside')
   })
 
   it('runs the array in order — that is the only ordering rule', async () => {

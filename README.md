@@ -39,6 +39,9 @@ ratoon init                # writes the container, installs nothing
 ratoon start add-banner
 ```
 
+Every command also works from inside the repository or a slot — `ratoon list` in `my-wt/proj`
+finds the container — so there is no need to `cd` back out to see the pool.
+
 Task names are kebab-case (`add-banner`): the name *is* the branch (`feature/add-banner`), so it is
 validated before any git command runs instead of failing inside git afterwards.
 

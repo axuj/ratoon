@@ -1,5 +1,5 @@
 import type { RatoonOptions } from './cli.ts'
-import { resolveLayout } from './layout.ts'
+import { layoutOf } from './layout.ts'
 import { isFree, scanPool } from './state.ts'
 
 export type SlotState = 'busy' | 'free' | 'unknown'
@@ -10,7 +10,7 @@ export type SlotState = 'busy' | 'free' | 'unknown'
  * hidden: `start` will not use either one, so they are drift to look at, not slots to allocate.
  */
 export async function runList(opts: RatoonOptions): Promise<void> {
-  const layout = resolveLayout(opts.root, opts.main)
+  const layout = layoutOf(opts)
   const pool = await scanPool(layout.root, layout.mainDir)
 
   console.log(`root: ${layout.root} · main: ${layout.mainDir}\n`)
