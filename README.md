@@ -1,5 +1,8 @@
 # ratoon
 
+[![npm](https://img.shields.io/npm/v/ratoon)](https://www.npmjs.com/package/ratoon)
+[![ci](https://img.shields.io/github/actions/workflow/status/axuj/ratoon/ci.yml?branch=master)](https://github.com/axuj/ratoon/actions/workflows/ci.yml)
+
 A worktree **slot pool** for git. Tasks run in pre-warmed worktrees, land as exactly one commit
 each, and all the project-specific logic — install, build, notes — lives in one TypeScript file
 outside every worktree.
@@ -32,7 +35,7 @@ ratoon list                      show the pool
 ## Quick start
 
 ```bash
-npm i -g .                 # from a checkout; Node >= 26
+npm i -g ratoon            # Node >= 26
 mkdir my-wt && cd my-wt
 ratoon init                # writes the container, installs nothing
 # move or clone the repository you want to work on under my-wt/
@@ -91,6 +94,7 @@ commands.
 ## Development
 
 ```bash
+npm i -g .         # or install this checkout
 nub run demo        # throwaway container in ./wt-demo
 nub run typecheck   # tsc --noEmit
 nub run lint        # eslint
