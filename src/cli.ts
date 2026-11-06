@@ -207,7 +207,7 @@ const initCommand = defineCommand({
     force: {
       type: 'boolean',
       default: false,
-      description: 'write into a non-empty directory (overwrites the scaffolding files)',
+      description: 'overwrite the scaffolding files that already exist',
     },
   },
   run: ({ args }) => guard(args, opts => runInit(opts, { force: args.force === true })),

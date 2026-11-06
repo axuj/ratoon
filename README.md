@@ -3,16 +3,15 @@
 [![npm](https://img.shields.io/npm/v/ratoon)](https://www.npmjs.com/package/ratoon)
 [![ci](https://img.shields.io/github/actions/workflow/status/axuj/ratoon/ci.yml?branch=master)](https://github.com/axuj/ratoon/actions/workflows/ci.yml)
 
-A worktree **slot pool** for git. Tasks run in pre-warmed worktrees, land as exactly one commit
-each, and all the project-specific logic — install, build, notes — lives in one TypeScript file
-outside every worktree.
+A worktree **slot pool** for git. Two tasks at once usually means two clones and two cold
+installs — or a stash dance in one worktree. ratoon gives each task a slot instead: `finish`
+lands it as exactly one commit, and the slot stays warm for the next task.
 
 The name is the agronomic one: after a harvest the *ratoon* (regrowth) springs from the same root
-system, which is exactly what a slot does. It keeps `node_modules` and a warm checkout alive
-between tasks, so the next `start` is a branch switch instead of a cold clone.
+system, which is exactly what a slot does.
 
 ```
-ratoon init                      scaffold a container in an empty directory
+ratoon init                      scaffold the container files in a directory
 ratoon start <task>              claim a slot, create the branch, run the hooks
 ratoon finish <task> -m <title>  squash the task into one commit, park the slot
 ratoon abandon <task>            throw the work away, keep the slot
@@ -21,10 +20,12 @@ ratoon list                      show the pool
 
 ## Why
 
-- **Warm by default.** A slot is a real worktree that survives `finish`. Whatever the last task
-  installed or built is still there when the next one starts.
-- **One task, one commit.** `finish` squashes the branch and lands your `-m` verbatim; the drafts
-  you committed along the way never reach the base. Undoing a task is `git revert <sha>`.
+- **A pool, not a pile of clones.** With plain worktrees you pick the directory, name the branch,
+  and remember which one is free. Here the pool tracks that, and `finish` parks the slot instead of
+  deleting it — the next `start` switches branches in the same warm worktree.
+- **One task, one commit.** Commit inside the slot as often as you like — `wip`, `try this`,
+  `ok that was dumb` — `finish` squashes them all and lands your `-m` verbatim. Nothing else
+  reaches the base, and undoing a task is `git revert <sha>`.
 - **Parallel by construction.** A slot is a directory plus one claim file, so several tasks — or
   several agents — start at once instead of queueing; `finish` lands them one at a time.
 - **Hooks outside the worktree.** `<root>/.ratoon/hooks.ts` is shared by every slot and every
@@ -37,8 +38,8 @@ ratoon list                      show the pool
 ```bash
 npm i -g ratoon            # Node >= 26
 mkdir my-wt && cd my-wt
-ratoon init                # writes the container, installs nothing
-# move or clone the repository you want to work on under my-wt/
+git clone <your-repo>      # or move an existing checkout here
+ratoon init                # writes the container, leaves the repo alone
 ratoon start add-banner
 ```
 

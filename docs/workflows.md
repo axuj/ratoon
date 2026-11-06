@@ -42,6 +42,7 @@ another one after a context loss — so write for that reader, not for the commi
 | Try another direction, keep only one | checkpoint A → `start B --base feature/A` → test → **abandon the loser, then finish the winner** |
 | Two independent tasks, both land | start both from the main branch (do not `--base` one on the other), finish each |
 | B depends on A, both land | **finish A first, then finish B** — B rebases onto the new main automatically |
+| Several agents, one task each | `start` a different task per agent — the name *is* the branch, so two agents cannot share one; `finish` lands them one at a time |
 | Conflict during finish | `finish` exits 2, edit the files, run the same command again |
 | Nothing to land (the commits cancel out) | `finish` says so, lands no commit, and parks the slot — an empty commit would be noise |
 | Drop the task | `abandon <task>` |

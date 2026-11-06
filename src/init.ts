@@ -177,7 +177,7 @@ export function writeScaffolding(dir: string, refresh = false): ScaffoldResult {
 
 export async function runInit(opts: RatoonOptions, flags: InitFlags): Promise<void> {
   const dir = path.resolve(opts.root)
-  // first, before the non-empty check: a stray `init --root <ratoon>` must never touch ratoon
+  // first, before the clash check: a stray `init --root <ratoon>` must never touch ratoon
   refuseSelf(dir)
   ensureWritable(dir, flags.force)
   const { wrote, refreshed, kept } = writeScaffolding(dir, flags.force)
