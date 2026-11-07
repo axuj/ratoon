@@ -1,20 +1,9 @@
-import type { RatoonOptions } from './cli.ts'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { bundledDocs } from './docs.ts'
-import { agentsMd, GITIGNORE, HOOKS, packageJson, TSCONFIG } from './templates.ts'
-
-interface InitFlags {
-  force: boolean
-}
-
-/**
- * The files ratoon owns inside a container: the types, the optional starter plugins and the
- * bundled guides. Every other scaffolded file is yours the moment it is written: `init` creates it
- * once and never touches it again — not even with `--force`.
- */
-const TOOL_OWNED = new Set(['.ratoon/types.ts'])
+import { poolForRepo } from './layout.ts'
+import { HOOKS } from './templates.ts'
 
 const PLUGIN_FILES = [
   'npm-install.ts',
@@ -22,42 +11,20 @@ const PLUGIN_FILES = [
   'task-notes.ts',
 ] as const
 
-function isToolOwned(key: string): boolean {
-  return TOOL_OWNED.has(key) || key.startsWith('.ratoon/plugins/') || key.startsWith('.ratoon/docs/')
-}
-
 export interface ScaffoldResult {
   /** created because the file did not exist */
   wrote: string[]
-  /** ratoon-owned files replaced by `--force` */
-  refreshed: string[]
   /** already there, left exactly as it was */
   kept: string[]
-}
-
-function packageNameFor(dir: string): string {
-  const raw = path.basename(path.resolve(dir)).toLowerCase()
-  const cleaned = raw.replace(/[^a-z0-9._~-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '')
-  return cleaned || 'ratoon-container'
 }
 
 function ratoonRoot(): string {
   return fileURLToPath(new URL('../', import.meta.url))
 }
 
-function ratoonVersion(): string {
-  try {
-    const manifest = readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')
-    return JSON.parse(manifest).version ?? 'unknown'
-  }
-  catch {
-    return 'unknown'
-  }
-}
-
 /**
- * A file the container gets to own: `src/types.ts` and `src/plugins/*.ts` are copied verbatim, so
- * a container never imports the engine at runtime.
+ * A file the project gets to own: `src/types.ts` and `src/plugins/*.ts` are copied verbatim, so a
+ * project never imports the engine at runtime — and can edit any of them.
  *
  * Running from source, the file sits next to `init.ts`; running from the built `dist/`, only the
  * unbuilt sources are shipped for exactly these files, one directory up.
@@ -73,99 +40,105 @@ function ownSource(name: string): string {
 
 export function refuseSelf(dir: string): void {
   if (path.resolve(dir) === path.resolve(ratoonRoot()))
-    throw new Error('refusing to init ratoon inside itself — point --root at a fresh directory')
+    throw new Error('refusing to init ratoon inside itself — run init from a different repository')
 }
 
 /**
- * Everything `init` puts in the container root. A directory holding anything else — the repository
- * you cloned into it, notes, other checkouts — is the normal case, not a conflict.
+ * The repository `init` installs into: the nearest ancestor whose `.git` is a directory. A worktree
+ * (`.git` as a file) is not it — the repository you manage is the one that owns the history.
  */
-const SCAFFOLD_PATHS = [
-  'package.json',
-  'tsconfig.json',
-  '.gitignore',
-  'AGENTS.md',
-  '.ratoon',
-] as const
-
-/**
- * `init`'s safety rule: it never writes over a file it did not write. So the question is not
- * whether the directory is empty but whether scaffolding would clash with something already there
- * — an unrelated file next to `<main-repo>/` blocks nothing.
- */
-export function ensureWritable(dir: string, force: boolean): void {
-  if (force)
-    return
-  const clashes = SCAFFOLD_PATHS.filter(name => existsSync(path.join(dir, name)))
-  if (clashes.length === 0)
-    return
-  if (existsSync(path.join(dir, '.ratoon', 'types.ts')))
-    return // an existing container: init fills in what is missing, never overwrites
-  throw new Error(
-    `${dir} already holds ${clashes.join(', ')}\n`
-    + 'ratoon init would scaffold those — pass --force to add the missing files and keep yours.',
-  )
+export function repoRootOf(start: string): string {
+  for (let dir = path.resolve(start); ;) {
+    const git = path.join(dir, '.git')
+    if (existsSync(git) && lstatSync(git).isDirectory())
+      return dir
+    const parent = path.dirname(dir)
+    if (parent === dir)
+      throw new Error(`not inside a git repository: ${start}\nrun ratoon init from the repository you want to manage`)
+    dir = parent
+  }
 }
 
 /**
- * Write the container skeleton: manifest, tsconfig, gitignore, `AGENTS.md`, the hook entry and
- * types under `.ratoon/`, the optional starter plugins under `.ratoon/plugins/`, and the bundled
- * guides under `.ratoon/docs/`. Shared by `init` and `demo`; the caller owns the "may I write here
- * at all" decision, because the two commands disagree about what `--force` means.
+ * The one line that keeps ratoon's local state out of git. It is a glob on purpose: with plain
+ * `.ratoon/`, git never descends into the ignored directory, so `!.ratoon/hooks.ts` could not
+ * re-include a file a team wants to share. `.ratoon/*` ignores everything today and leaves that
+ * door open.
  *
- * Nothing is overwritten unless it is ratoon-owned *and* `refresh` is set: `hooks.ts`, `AGENTS.md`
- * and the manifests are yours from the first write on. That makes a second `init` a no-op instead
- * of a reset, and `--force` a toolbox refresh instead of a wipe.
- *
- * Nothing is installed: the container has no runtime dependencies, so scaffolding is pure file
- * writing. `npm i` is only needed if you want `npm run typecheck`.
+ * `start` calls this on every run, so a plain `git init` is already enough to begin; `init` calls
+ * it too, for people who start there. Idempotent: a second call never appends a duplicate. An older
+ * `.ratoon/worktrees/` rule counts as installed, so existing repositories are left as they are.
  */
-export function writeScaffolding(dir: string, refresh = false): ScaffoldResult {
-  const name = packageNameFor(dir)
-  const version = ratoonVersion()
-  mkdirSync(dir, { recursive: true })
+export const IGNORE_RULE = '.ratoon/*'
+
+export function ensureRatoonIgnored(repo: string): 'added' | 'created' | 'present' {
+  const file = path.join(repo, '.gitignore')
+  const text = existsSync(file)
+    ? readFileSync(file, 'utf8')
+    : ''
+  const lines = text.split(/\r?\n/).map(line => line.trim())
+  const installed = lines.some(line =>
+    [IGNORE_RULE, '.ratoon/', '.ratoon/worktrees/'].some(rule => line === rule || line === `/${rule}`))
+  if (installed)
+    return 'present'
+
+  const separator = text !== '' && !text.endsWith('\n')
+    ? '\n'
+    : ''
+  writeFileSync(file, `${text}${separator}${IGNORE_RULE}\n`)
+  return text === ''
+    ? 'created'
+    : 'added'
+}
+
+/**
+ * `init` only creates missing files, so an existing `.ratoon/` is never a reason to refuse — not
+ * one you made yourself, not one already holding your own plugins or a `hooks.ts` you wrote. The
+ * single case worth stopping for is a `.ratoon` that is a file: every write below would fail with
+ * a raw errno instead of saying what is wrong.
+ */
+export function ensureWritable(repo: string): void {
+  const dir = path.join(repo, '.ratoon')
+  if (existsSync(dir) && !statSync(dir).isDirectory())
+    throw new Error(`${dir} is a file, not a directory — move it aside and run init again`)
+}
+
+/**
+ * Write the executable configuration into the repository: `hooks.ts`, the types and the starter
+ * plugins, all under `.ratoon/`. Rules for agents live in the ratoon skill and are never copied
+ * into a repository, where they would freeze at the version that ran `init`.
+ *
+ * Only missing files are written. An existing one is never overwritten, so editing a starter
+ * plugin, a type, or `hooks.ts` is safe: the next `init` leaves it byte for byte. The way to take
+ * a newer copy after upgrading ratoon is to delete that file and run `init` again.
+ *
+ * The project's `package.json` and `tsconfig.json` are never touched; `.gitignore` gets one line
+ * from `ensureRatoonIgnored`.
+ */
+export function writeScaffolding(dir: string): ScaffoldResult {
+  mkdirSync(path.join(dir, '.ratoon'), { recursive: true })
 
   const files: [rel: string, content: string][] = [
-    [
-      'package.json',
-      packageJson(name),
-    ],
-    ['tsconfig.json', TSCONFIG],
-    ['.gitignore', GITIGNORE],
-    [
-      'AGENTS.md',
-      agentsMd(name),
-    ],
     [
       path.join('.ratoon', 'hooks.ts'),
       HOOKS,
     ],
     [
       path.join('.ratoon', 'types.ts'),
-      `// ratoon ${version}\n${ownSource('types.ts')}`,
+      ownSource('types.ts'),
     ],
     ...PLUGIN_FILES.map((file): [string, string] => [
       path.join('.ratoon', 'plugins', file),
-      `// ratoon ${version}\n${ownSource(`plugins/${file}`)}`,
-    ]),
-    ...bundledDocs().map(({ name: doc, text }): [string, string] => [
-      path.join('.ratoon', 'docs', doc),
-      text,
+      ownSource(`plugins/${file}`),
     ]),
   ]
 
-  const result: ScaffoldResult = { wrote: [], refreshed: [], kept: [] }
+  const result: ScaffoldResult = { wrote: [], kept: [] }
   for (const [rel, content] of files) {
     const key = rel.replace(/\\/g, '/')
     const target = path.join(dir, rel)
     if (existsSync(target)) {
-      if (refresh && isToolOwned(key)) {
-        writeFileSync(target, content)
-        result.refreshed.push(key)
-      }
-      else {
-        result.kept.push(key)
-      }
+      result.kept.push(key)
       continue
     }
     mkdirSync(path.dirname(target), { recursive: true })
@@ -175,41 +148,40 @@ export function writeScaffolding(dir: string, refresh = false): ScaffoldResult {
   return result
 }
 
-export async function runInit(opts: RatoonOptions, flags: InitFlags): Promise<void> {
-  const dir = path.resolve(opts.root)
-  // first, before the clash check: a stray `init --root <ratoon>` must never touch ratoon
-  refuseSelf(dir)
-  ensureWritable(dir, flags.force)
-  const { wrote, refreshed, kept } = writeScaffolding(dir, flags.force)
+export async function runInit(): Promise<void> {
+  const cwd = process.cwd()
+  // first: a stray `init` in ratoon's own checkout must never write into it
+  refuseSelf(cwd)
 
-  const summary = [`\nscaffolding ${dir}`]
+  const repo = repoRootOf(cwd)
+  ensureWritable(repo)
+  const { wrote, kept } = writeScaffolding(repo)
+  const ignored = ensureRatoonIgnored(repo)
+
+  // `start` creates the pool on demand. An empty ignored directory is not an installation marker:
+  // `git clean -fdx` removes it, and `resolveLayout` reads committed traces instead.
+  const pool = poolForRepo(repo)
+
+  const summary = [`\ninstalling ratoon into ${repo}`]
   if (wrote.length > 0)
     summary.push(`  wrote     ${wrote.join(', ')}`)
-  if (refreshed.length > 0)
-    summary.push(`  refreshed ${refreshed.join(', ')}`)
-  if (kept.length > 0)
-    summary.push(`  kept      ${kept.join(', ')}`)
+  else if (kept.length > 0)
+    summary.push('  exists    all files — nothing to write')
+  if (kept.length > 0 && wrote.length > 0)
+    summary.push(`  exists    ${kept.join(', ')}`)
+  if (ignored !== 'present')
+    summary.push(`  ${ignored}   .gitignore (${IGNORE_RULE})`)
   console.log(`${summary.join('\n')}\n`)
 
-  const stale = kept.filter(file => isToolOwned(file))
-  if (stale.length > 0)
-    console.log(`(--force refreshes ${stale.join(', ')}; your hooks.ts is never touched)\n`)
+  if (kept.length > 0)
+    console.log('(files under "exists" were already there and were left untouched. Delete one and run init again to take the newer copy.)\n')
 
   console.log(`
-Done. Next steps:
-  ${repositoryStep(dir)}
-  2. edit .ratoon/hooks.ts — starter plugins live in .ratoon/plugins/ (taskNotes is on; npmInstall is opt-in), yours to edit
-  3. run \`npm i\` if you want \`npm run typecheck\` (nothing else needs it)
-  4. ratoon start <task> --root ${dir}
-`)
-}
+Done. Everything here is optional — \`ratoon start\` already works in this repository.
 
-/** The repository may already be in place — the natural order is clone first, scaffold second. */
-function repositoryStep(dir: string): string {
-  const repos = readdirSync(dir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && existsSync(path.join(dir, entry.name, '.git')))
-    .map(entry => entry.name)
-  if (repos.length === 1)
-    return `1. repository: ${repos[0]} — \`ratoon list\` shows the pool`
-  return `1. put your repository somewhere under ${dir} (ratoon auto-detects the only dir whose .git is a directory)`
+Next steps:
+  1. edit .ratoon/hooks.ts — starter plugins live in .ratoon/plugins/ (taskNotes is on; npmInstall is opt-in)
+  2. ratoon start <task>            # pool: ${pool}
+  3. npx skills add axuj/ratoon --skill ratoon   # give your agent the workflow rules
+`)
 }

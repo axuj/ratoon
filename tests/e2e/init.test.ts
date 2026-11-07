@@ -1,26 +1,23 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { disposeDir, gitOut, ratoon, readJson } from '../helpers/container.ts'
+import { disposeDir, gitOut, ratoon, readJson } from '../helpers/repo.ts'
 
 const RATOON_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const TSC = fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url))
 const TYPES = fileURLToPath(new URL('../../node_modules/@types', import.meta.url))
+
+/** What `init` writes into the repository — nothing outside `.ratoon/` belongs to it. */
 const SCAFFOLD = [
-  'package.json',
-  'tsconfig.json',
-  '.gitignore',
-  'AGENTS.md',
   '.ratoon/hooks.ts',
   '.ratoon/types.ts',
   '.ratoon/plugins/npm-install.ts',
   '.ratoon/plugins/shared.ts',
   '.ratoon/plugins/task-notes.ts',
-  '.ratoon/docs/workflows.md',
-  '.ratoon/docs/plugins.md',
 ]
 
 const created: string[] = []
@@ -31,128 +28,170 @@ function freshDir(): string {
   return dir
 }
 
+/** A directory holding one git repository — what `init` expects to be run from. */
+function freshRepo(): { root: string, repo: string } {
+  const root = freshDir()
+  const repo = path.join(root, 'proj')
+  mkdirSync(repo, { recursive: true })
+  gitOut(repo, 'init', '-b', 'master')
+  return { root, repo }
+}
+
 afterEach(() => {
   for (const dir of created.splice(0))
     disposeDir(dir)
 })
 
 describe('ratoon init', () => {
-  it('scaffolds every file and the hooks typecheck against ratoon', async () => {
-    const dir = freshDir()
-    const result = await ratoon(['init', '--root', dir])
+  it('installs into the repository and leaves the project files alone', async () => {
+    const { root, repo } = freshRepo()
+    const manifest = '{ "name": "mine" }\n'
+    writeFileSync(path.join(repo, 'package.json'), manifest)
+    writeFileSync(path.join(repo, 'tsconfig.json'), '{}\n')
 
+    const result = await ratoon(['init'], { cwd: repo })
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('Done. Next steps')
+    expect(result.stdout).toContain('installing ratoon into')
+
     for (const rel of SCAFFOLD)
-      expect(existsSync(path.join(dir, rel)), rel).toBe(true)
+      expect(existsSync(path.join(repo, rel)), rel).toBe(true)
 
-    // no runtime dependencies at all: the plugins and types are files in the container
-    const manifest = readJson(path.join(dir, 'package.json'))
-    expect(manifest).toMatchObject({ type: 'module', private: true })
-    expect(manifest.dependencies).toBeUndefined()
-    // hooks run through Node's type stripping, so the container itself needs Node >= 26
-    expect(manifest.engines).toEqual({ node: '>=26' })
-    expect(manifest.devDependencies).toMatchObject({
-      typescript: expect.any(String),
-    })
-    expect(readJson(path.join(dir, 'tsconfig.json')).include).toEqual(['.ratoon/**/*.ts'])
-    expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('ratoon start <task>')
-    expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('.ratoon/docs/')
-    // where the slot keeps the plan and findings that git cannot hold
-    expect(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('.state/<slot>/TASK.md')
+    // the project's own files are not ratoon's to write; .gitignore gains exactly one line
+    expect(readFileSync(path.join(repo, 'package.json'), 'utf8')).toBe(manifest)
+    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('.ratoon/*\n')
+    // agent rules stay in the skill — no frozen copy is written into the repository
+    expect(existsSync(path.join(repo, 'AGENTS.md'))).toBe(false)
+    expect(existsSync(path.join(repo, '.ratoon', 'AGENTS.md'))).toBe(false)
+    expect(existsSync(path.join(repo, '.ratoon', 'docs'))).toBe(false)
+    expect(readdirSync(path.join(repo, '.ratoon')).sort()).toEqual(['hooks.ts', 'plugins', 'types.ts'])
 
-    const hooks = readFileSync(path.join(dir, '.ratoon', 'hooks.ts'), 'utf8')
-    expect(hooks).toContain('satisfies Plugin[]')
+    // `init` declares the pool but does not create it — `start` does, on demand. No sibling pool.
+    expect(existsSync(path.join(repo, '.ratoon', 'worktrees'))).toBe(false)
+    expect(existsSync(path.join(root, 'proj-wt'))).toBe(false)
+    expect(existsSync(path.join(repo, 'slot-0'))).toBe(false)
+    expect(existsSync(path.join(repo, '.state'))).toBe(false)
+    expect(gitOut(repo, 'status', '--porcelain', '-uall')).not.toContain('.ratoon/worktrees')
+
+    const hooks = readFileSync(path.join(repo, '.ratoon', 'hooks.ts'), 'utf8')
     expect(hooks).toContain('export default [taskNotes()] satisfies Plugin[]')
+    expect(readFileSync(path.join(repo, '.ratoon/plugins/task-notes.ts'), 'utf8')).toContain('export function taskNotes')
+  })
 
-    // starter plugins are copied in; taskNotes is the one enabled, npmInstall stays opt-in
-    const npmInstall = readFileSync(path.join(dir, '.ratoon/plugins/npm-install.ts'), 'utf8')
-    expect(npmInstall).toContain('export function npmInstall')
-    expect(readFileSync(path.join(dir, '.ratoon/plugins/task-notes.ts'), 'utf8')).toContain('export function taskNotes')
-    expect(readFileSync(path.join(dir, '.ratoon/plugins/shared.ts'), 'utf8')).toContain('export function statePath')
+  it('typechecks the hooks against the copies it carries', async () => {
+    const { repo } = freshRepo()
+    await ratoon(['init'], { cwd: repo })
 
-    // the scaffold typechecks against the copies it carries — no package resolution involved
-    mkdirSync(path.join(dir, 'node_modules'), { recursive: true })
-    symlinkSync(TYPES, path.join(dir, 'node_modules', '@types'), 'junction')
-    const typecheck = spawnSync(process.execPath, [TSC, '--noEmit', '-p', dir], {
-      cwd: dir,
+    // no package resolution involved: the project gets @types/node from its own install
+    mkdirSync(path.join(repo, 'node_modules'), { recursive: true })
+    symlinkSync(TYPES, path.join(repo, 'node_modules', '@types'), 'junction')
+    const config = path.join(repo, 'tsconfig.ratoon.json')
+    writeFileSync(config, JSON.stringify({
+      compilerOptions: {
+        target: 'ES2023',
+        lib: ['ES2023'],
+        module: 'ESNext',
+        moduleResolution: 'bundler',
+        allowImportingTsExtensions: true,
+        noEmit: true,
+        strict: true,
+        skipLibCheck: true,
+        verbatimModuleSyntax: true,
+        types: ['node'],
+      },
+      include: ['.ratoon/**/*.ts'],
+    }))
+
+    const typecheck = spawnSync(process.execPath, [TSC, '--noEmit', '-p', config], {
+      cwd: repo,
       encoding: 'utf8',
     })
     expect(typecheck.status, typecheck.stdout + typecheck.stderr).toBe(0)
   })
 
-  it('scaffolds around whatever it does not write', async () => {
-    const dir = freshDir()
-    // the common order: the repository is already in the container when init runs
-    mkdirSync(path.join(dir, 'proj'), { recursive: true })
-    gitOut(path.join(dir, 'proj'), 'init', '-b', 'master')
-    const mine = path.join(dir, 'notes.txt')
+  it('appends the ignore rule once, even across repeated runs', async () => {
+    const { repo } = freshRepo()
+    writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\n')
+
+    await ratoon(['init'], { cwd: repo })
+    await ratoon(['init'], { cwd: repo })
+    const third = await ratoon(['init'], { cwd: repo })
+    expect(third.status).toBe(0)
+    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\n.ratoon/*\n')
+  })
+
+  it('is a no-op on the second run', async () => {
+    const { repo } = freshRepo()
+    await ratoon(['init'], { cwd: repo })
+
+    const again = await ratoon(['init'], { cwd: repo })
+    expect(again.status).toBe(0)
+    expect(again.stdout).toContain('exists')
+    expect(again.stdout).toContain('Delete one and run init again')
+    expect(again.stdout).not.toContain('wrote')
+  })
+
+  it('never overwrites your edits — not hooks, not a starter plugin', async () => {
+    const { repo } = freshRepo()
+    await ratoon(['init'], { cwd: repo })
+
+    const mine = 'export default []\n'
+    const fork = '// my fork\nexport function npmInstall() {}\n'
+    writeFileSync(path.join(repo, '.ratoon', 'hooks.ts'), mine)
+    writeFileSync(path.join(repo, '.ratoon', 'plugins', 'npm-install.ts'), fork)
+    const note = path.join(repo, '.ratoon', 'notes.md')
+    writeFileSync(note, 'mine\n')
+
+    const result = await ratoon(['init'], { cwd: repo })
+    expect(result.status).toBe(0)
+
+    // every existing file stays byte-for-byte, whoever wrote it
+    expect(readFileSync(path.join(repo, '.ratoon', 'hooks.ts'), 'utf8')).toBe(mine)
+    expect(readFileSync(path.join(repo, '.ratoon', 'plugins', 'npm-install.ts'), 'utf8')).toBe(fork)
+    expect(readFileSync(note, 'utf8')).toBe('mine\n')
+  })
+
+  it('fills in a .ratoon/ it did not write, without touching your files', async () => {
+    const { repo } = freshRepo()
+    mkdirSync(path.join(repo, '.ratoon'), { recursive: true })
+    const mine = path.join(repo, '.ratoon', 'notes.md')
     writeFileSync(mine, 'mine\n')
 
-    const result = await ratoon(['init', '--root', dir])
+    const result = await ratoon(['init'], { cwd: repo })
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('repository: proj')
-    expect(existsSync(path.join(dir, 'AGENTS.md'))).toBe(true)
     expect(readFileSync(mine, 'utf8')).toBe('mine\n')
+    expect(existsSync(path.join(repo, '.ratoon', 'types.ts'))).toBe(true)
   })
 
-  it('refuses to scaffold over a file it would write, and writes nothing', async () => {
-    const dir = freshDir()
-    const existing = path.join(dir, 'package.json')
-    writeFileSync(existing, '{"name":"mine"}\n')
+  it('says what is wrong when .ratoon is a file', async () => {
+    const { repo } = freshRepo()
+    writeFileSync(path.join(repo, '.ratoon'), 'oops\n')
 
-    const result = await ratoon(['init', '--root', dir])
+    const result = await ratoon(['init'], { cwd: repo })
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('already holds package.json')
-    expect(result.stderr).toContain('--force')
-    expect(readFileSync(existing, 'utf8')).toBe('{"name":"mine"}\n')
-    expect(existsSync(path.join(dir, 'tsconfig.json'))).toBe(false)
+    expect(result.stderr).toContain('is a file, not a directory')
   })
 
-  it('refreshes only the files ratoon owns — --force never touches your hooks', async () => {
+  it('says --force is gone instead of silently doing nothing', async () => {
+    const { repo } = freshRepo()
+
+    const result = await ratoon(['init', '--force'], { cwd: repo })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('--force was removed')
+    expect(existsSync(path.join(repo, '.ratoon'))).toBe(false)
+  })
+
+  it('refuses to run outside a repository', async () => {
     const dir = freshDir()
-    mkdirSync(path.join(dir, '.ratoon'), { recursive: true })
-    const slotState = path.join(dir, '.state', 'slot-9', 'task')
-    mkdirSync(path.dirname(slotState), { recursive: true })
-    writeFileSync(slotState, 'old-task\n')
-    const mine = 'export default [{ name: \'mine\', onStart() {} }]\n'
-    writeFileSync(path.join(dir, '.ratoon', 'hooks.ts'), mine)
-    mkdirSync(path.join(dir, '.ratoon', 'plugins'), { recursive: true })
-    writeFileSync(path.join(dir, '.ratoon', 'plugins', 'npm-install.ts'), '// my own fork\n')
-    mkdirSync(path.join(dir, '.ratoon', 'docs'), { recursive: true })
-    writeFileSync(path.join(dir, '.ratoon', 'docs', 'workflows.md'), '# old guide\n')
-    const manifest = '{ "name": "mine" }\n'
-    writeFileSync(path.join(dir, 'package.json'), manifest)
 
-    const result = await ratoon(['init', '--root', dir, '--force'])
-    expect(result.status).toBe(0)
-
-    // user-owned files stay byte-for-byte; the toolbox is refreshed
-    expect(readFileSync(path.join(dir, '.ratoon', 'hooks.ts'), 'utf8')).toBe(mine)
-    expect(readFileSync(path.join(dir, 'package.json'), 'utf8')).toBe(manifest)
-    const plugin = readFileSync(path.join(dir, '.ratoon', 'plugins', 'npm-install.ts'), 'utf8')
-    expect(plugin).toContain('export function npmInstall')
-
-    // `.state/` is per-slot runtime state, not scaffolding: --force has no business there
-    expect(readFileSync(slotState, 'utf8')).toBe('old-task\n')
+    const result = await ratoon(['init'], { cwd: dir })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('not inside a git repository')
   })
 
-  it('is a no-op on the second run and says what --force would refresh', async () => {
-    const dir = freshDir()
-    await ratoon(['init', '--root', dir])
-
-    const again = await ratoon(['init', '--root', dir])
-    expect(again.status).toBe(0)
-    expect(again.stdout).toContain('kept      package.json')
-    expect(again.stdout).toContain('--force refreshes')
-    expect(again.stdout).toContain('.ratoon/docs/workflows.md')
-    expect(again.stdout).not.toContain('refreshed')
-  })
-
-  it('refuses to scaffold over ratoon itself', async () => {
+  it('refuses to install over ratoon itself', async () => {
     const before = readJson(path.join(RATOON_ROOT, 'package.json'))
 
-    const result = await ratoon(['init', '--root', RATOON_ROOT])
+    const result = await ratoon(['init'], { cwd: RATOON_ROOT })
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('refusing to init ratoon inside itself')
 

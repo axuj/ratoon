@@ -20,7 +20,7 @@
   "files": [
     "README.md",
     "dist",
-    "docs",
+    "skills",
     "src/plugins",
     "src/types.ts"
   ],

@@ -8,35 +8,45 @@ export type TaskNotesContext = Pick<HookContext, 'task' | 'branch' | 'slotDir' |
 export interface TaskNotesOptions {
   /** Filename under `<root>/.state/<slot>/`. Default `TASK.md`. */
   file?: string
-  /** What to write in `onStart`. Default: a minimal task skeleton. */
+  /** What to write in `onStart`. Default: a handoff sheet with one open box. */
   template?: (ctx: TaskNotesContext) => string
   /** Warn when the file still has `- [ ]` boxes left at `finish`. Default `true`. */
   warnUnchecked?: boolean
 }
 
+/**
+ * The handoff sheet a human reads before approving `finish`. It lives outside the worktree, so it
+ * cannot be committed, staged by accident, or seen as dirt; it is also the one surface an agent
+ * with an isolated context can reach through the filesystem.
+ *
+ * The template starts with an open box on purpose: a sheet nobody touched still warns at `finish`,
+ * which is the reminder to fill in and clear the plan.
+ */
 function defaultTemplate(ctx: TaskNotesContext): string {
-  // Facts are only for orientation — `ratoon list` can re-derive them. The plan is what a killed
-  // session loses, so it comes first; findings get appended below it as they are learned.
   return [
-    `# TASK: ${ctx.task}（${ctx.branch}）`,
+    `# TASK: ${ctx.task} (${ctx.branch})`,
     '',
-    `- 任务：${ctx.task}`,
-    `- 分支：${ctx.branch}`,
-    `- 槽位：${ctx.slotDir}`,
+    `- slot: ${ctx.slotDir}`,
+    `- base: ${ctx.base}`,
     '',
     '## Plan',
-    '（开工前写，一行一步；边做边改，别留着过期的那版）',
+    '(one line per step; tick [x] as each one finishes)',
+    '',
+    '- [ ] <first step>',
+    '',
+    '## Findings',
+    '(what git cannot record — why an approach was dropped, what not to retry. One line each)',
+    '',
+    '## Left open',
+    '(decisions for the user; empty before finish)',
     '',
   ].join('\n')
 }
 
 /**
- * Task notes live next to the slot's other state (`task`, `busy`, `install`), never in the
- * worktree: nothing to gitignore, nothing `finish` can see as dirt, nothing that can end up in a
- * commit — so there is no deletion step to get wrong either.
- *
- * Written when a task starts and left in place when it ends. Reading "what was I doing" after a
- * paused finish or an `abandon` is the point; the next task in that slot overwrites the file.
+ * Written at `start` and left in place when a task ends — a paused `finish` or an `abandon` is
+ * exactly when someone needs to read what was in progress. `clearTask` keeps the file; the next
+ * task in that slot overwrites it, so it describes the current task only, not history.
  */
 export function taskNotes(options: TaskNotesOptions = {}): Plugin {
   const file = options.file ?? 'TASK.md'

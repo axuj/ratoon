@@ -33,8 +33,6 @@ describe('citty command tree', () => {
     ])
       expect(help.stdout).toContain(command)
     for (const flag of [
-      '--root',
-      '--main',
       '--base',
       '--branch-prefix',
     ])
@@ -88,13 +86,13 @@ describe('hoistGlobalOptions', () => {
   const cases: [name: string, input: string[], expected: string[]][] = [
     [
       'leaves options that already follow the command alone',
-      ['start', 'demo', '--root', 'X'],
-      ['start', 'demo', '--root', 'X'],
+      ['start', 'demo', '--base', 'X'],
+      ['start', 'demo', '--base', 'X'],
     ],
     [
       'moves options written before the command',
-      ['--root', 'X', 'start', 'demo'],
-      ['start', 'demo', '--root', 'X'],
+      ['--base', 'X', 'start', 'demo'],
+      ['start', 'demo', '--base', 'X'],
     ],
     [
       'moves value-less flags too',
@@ -103,8 +101,8 @@ describe('hoistGlobalOptions', () => {
     ],
     [
       'keeps = style values together',
-      ['--root=X', 'list'],
-      ['list', '--root=X'],
+      ['--base=X', 'list'],
+      ['list', '--base=X'],
     ],
     [
       'keeps a trailing help flag untouched',
@@ -120,7 +118,7 @@ describe('hoistGlobalOptions', () => {
     [
       'does not confuse a flag value for the command',
       [
-        '--main',
+        '--branch-prefix',
         'nested/repo',
         'finish',
         'demo',
@@ -128,7 +126,7 @@ describe('hoistGlobalOptions', () => {
       [
         'finish',
         'demo',
-        '--main',
+        '--branch-prefix',
         'nested/repo',
       ],
     ],

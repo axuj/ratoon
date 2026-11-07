@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { disposeDir, gitOut, ratoon } from '../helpers/container.ts'
+import { disposeDir, gitOut, ratoon } from '../helpers/repo.ts'
 
 const DEMO = fileURLToPath(new URL('../../scripts/demo.ts', import.meta.url))
 
@@ -14,11 +14,8 @@ function demo(args: string[]): { status: number, stdout: string, stderr: string 
   return { status: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
 }
 
+/** ratoon installs into the repository; the ignored pool sits inside it. */
 const SCAFFOLD = [
-  'package.json',
-  'tsconfig.json',
-  '.gitignore',
-  'AGENTS.md',
   '.ratoon/hooks.ts',
   '.ratoon/types.ts',
   '.ratoon/plugins/npm-install.ts',
@@ -27,10 +24,15 @@ const SCAFFOLD = [
 ]
 
 let dir = ''
+let repo = ''
+let pool = ''
+let created = { status: -1, stdout: '', stderr: '' }
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'ratoon demo '))
-  const created = demo(['--root', dir])
+  repo = dir
+  pool = path.join(repo, '.ratoon', 'worktrees')
+  created = demo(['--dir', dir])
   expect(created.status, `stdout:\n${created.stdout}\nstderr:\n${created.stderr}`).toBe(0)
 }, 120_000)
 
@@ -40,16 +42,22 @@ afterAll(() => {
 })
 
 describe('ratoon demo', () => {
-  it('scaffolds a container with a one-commit repository inside', () => {
+  it('installs ratoon into the repository and puts an ignored pool inside it', () => {
     for (const rel of SCAFFOLD)
-      expect(existsSync(path.join(dir, rel)), rel).toBe(true)
+      expect(existsSync(path.join(repo, rel)), rel).toBe(true)
 
-    // nothing is installed: the container is scaffolding plus its own copies of the plugins
-    expect(existsSync(path.join(dir, 'node_modules'))).toBe(false)
+    // rules live in the skill; init copies executable configuration only
+    expect(existsSync(path.join(repo, '.ratoon', 'AGENTS.md'))).toBe(false)
+    expect(existsSync(path.join(repo, '.ratoon', 'docs'))).toBe(false)
 
-    const repo = path.join(dir, 'demo')
+    // nothing is installed: the project gets files, not dependencies
+    expect(existsSync(path.join(repo, 'node_modules'))).toBe(false)
+    expect(existsSync(path.join(repo, 'slot-0'))).toBe(false)
+    // scaffolding declares the pool but does not create it — `start` does
+    expect(existsSync(pool)).toBe(false)
+
     expect(existsSync(path.join(repo, '.git'))).toBe(true)
-    expect(gitOut(repo, 'rev-list', '--count', 'HEAD')).toBe('1')
+    expect(gitOut(repo, 'rev-list', '--count', 'HEAD')).toBe('2')
     expect(gitOut(repo, 'branch', '--show-current')).toBe('master')
 
     // not inert: a local dependency to install, a lockfile committed so the slot stays clean,
@@ -64,54 +72,78 @@ describe('ratoon demo', () => {
       expect(existsSync(path.join(repo, rel)), rel).toBe(true)
     }
     expect(readFileSync(path.join(repo, 'index.js'), 'utf8')).toContain('from \'tiny\'')
-    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n')
+    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n.ratoon/*\n')
+    expect(gitOut(repo, 'status', '--porcelain', '-uall')).not.toContain('.ratoon/worktrees')
+  })
+
+  it('prints commands against this checkout\'s CLI, not a global install', () => {
+    // the demo is a workbench for this checkout: printed "try" lines must invoke its source CLI,
+    // never a bare `ratoon ...` that could come from somewhere else
+    expect(created.stdout).toContain('src/cli.ts')
+    expect(created.stdout).toMatch(/node ".*src\/cli\.ts" start first/)
+    expect(created.stdout).not.toMatch(/^\s*ratoon start /m)
   })
 
   it('is usable straight away — a slot can be taken and released', async () => {
-    const started = await ratoon(['start', 'first', '--root', dir])
+    const started = await ratoon(['start', 'first'], { cwd: repo })
     expect(started.status, `stdout:\n${started.stdout}\nstderr:\n${started.stderr}`).toBe(0)
     expect(started.stdout).toContain('slot-0')
     expect(started.stdout).toContain('plugins : loaded')
 
-    const slot = path.join(dir, 'slot-0')
+    const slot = path.join(pool, 'slot-0')
+    // every command resolves the same pool from inside a slot, with no flags
+    const inside = await ratoon(['list'], { cwd: slot })
+    expect(inside.status, `stdout:\n${inside.stdout}\nstderr:\n${inside.stderr}`).toBe(0)
+    // git reports the long form of a path; the temp directory is an 8.3 short name
+    expect(inside.stdout).toContain(`pool: ${realpathSync.native(pool)}`)
+    expect(inside.stdout).toMatch(/slot-0\s+busy\s+first/)
     // the demo repo is deliberately not inert: npmInstall has a local dep to install…
     expect(existsSync(path.join(slot, 'node_modules', 'tiny'))).toBe(true)
-    expect(existsSync(path.join(dir, '.state', 'slot-0', 'install'))).toBe(true)
+    expect(existsSync(path.join(pool, '.state', 'slot-0', 'install'))).toBe(true)
     // …and the build plugin has a script to run
     const built = readFileSync(path.join(slot, 'dist', 'out.js'), 'utf8')
     expect(built).toContain('// generated by build.mjs')
     expect(built).toContain('from \'tiny\'')
     // `dist/` is gitignored, so a built slot still lands — that is the whole point of it
-    const finished = await ratoon([
-      'finish',
-      'first',
-      '-m',
-      'feat: first',
-      '--root',
-      dir,
-    ])
+    const finished = await ratoon(['finish', 'first', '-m', 'feat: first'], { cwd: repo })
     expect(finished.status, `stdout:\n${finished.stdout}\nstderr:\n${finished.stderr}`).toBe(0)
-    expect(gitOut(path.join(dir, 'demo'), 'log', '--merges', '--oneline')).toBe('')
+    expect(gitOut(repo, 'log', '--merges', '--oneline')).toBe('')
     // the slot is parked and free: no task, no branch, no claim left behind
-    expect(existsSync(path.join(dir, '.state', 'slot-0', 'task'))).toBe(false)
-    expect(gitOut(path.join(dir, 'slot-0'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
+    expect(existsSync(path.join(pool, '.state', 'slot-0', 'task'))).toBe(false)
+    expect(gitOut(slot, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
   })
 
-  it('refuses to reuse an existing container without --force', async () => {
-    const again = demo(['--root', dir])
+  it('refuses to reuse an existing demo without --force', async () => {
+    const again = demo(['--dir', dir])
     expect(again.status).toBe(1)
     expect(again.stderr).toContain('--force')
   })
 
-  it('never wipes a directory that is not a container', async () => {
-    const notAContainer = mkdtempSync(path.join(os.tmpdir(), 'ratoon not-a-container-'))
-    writeFileSync(path.join(notAContainer, 'keep.txt'), 'precious\n')
+  it('never wipes a directory that is not a demo', async () => {
+    const notADemo = mkdtempSync(path.join(os.tmpdir(), 'ratoon not-a-demo-'))
+    writeFileSync(path.join(notADemo, 'keep.txt'), 'precious\n')
 
-    const attempt = demo(['--root', notAContainer, '--force'])
+    const attempt = demo(['--dir', notADemo, '--force'])
     expect(attempt.status).toBe(1)
-    expect(attempt.stderr).toContain('not a ratoon container')
+    expect(attempt.stderr).toContain('not a ratoon demo')
 
-    expect(readFileSync(path.join(notAContainer, 'keep.txt'), 'utf8')).toBe('precious\n')
-    disposeDir(notAContainer)
+    expect(readFileSync(path.join(notADemo, 'keep.txt'), 'utf8')).toBe('precious\n')
+    disposeDir(notADemo)
+  })
+
+  it('never wipes a real ratoon install that merely looks like a demo', async () => {
+    // a repository with the same .ratoon/hooks.ts shape, but not created by this script
+    const real = mkdtempSync(path.join(os.tmpdir(), 'ratoon real-install-'))
+    writeFileSync(path.join(real, 'keep.txt'), 'precious\n')
+    mkdirSync(path.join(real, '.git'), { recursive: true })
+    mkdirSync(path.join(real, '.ratoon'), { recursive: true })
+    writeFileSync(path.join(real, '.ratoon', 'hooks.ts'), 'export default []\n')
+
+    const attempt = demo(['--dir', real, '--force'])
+    expect(attempt.status).toBe(1)
+    expect(attempt.stderr).toContain('not a ratoon demo')
+
+    expect(readFileSync(path.join(real, 'keep.txt'), 'utf8')).toBe('precious\n')
+    disposeDir(real)
   })
 })

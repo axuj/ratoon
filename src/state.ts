@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { exec } from './shell.ts'
@@ -229,11 +230,21 @@ export async function scanPool(root: string, mainDir: string): Promise<PoolSlot[
   const known = await worktreeBranches(root, mainDir)
 
   const names = new Set<string>()
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  }
+  catch (err) {
+    // a pool that does not exist yet has no slots, and saying so beats an ENOENT from readdir
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT')
+      throw err
+    entries = []
+  }
+  for (const entry of entries) {
     if (entry.isDirectory() && /^slot-\d+$/.test(entry.name))
       names.add(entry.name)
   }
-  // a binding whose directory was deleted still belongs to this container — reporting it is what
+  // a binding whose directory was deleted still belongs to this pool — reporting it is what
   // lets `finish` say "the worktree is gone" instead of "there is no such task"
   for (const dir of known.keys())
     names.add(dir)

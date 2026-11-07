@@ -10,10 +10,10 @@ export type SlotState = 'busy' | 'free' | 'unknown'
  * hidden: `start` will not use either one, so they are drift to look at, not slots to allocate.
  */
 export async function runList(opts: RatoonOptions): Promise<void> {
-  const layout = layoutOf(opts)
+  const layout = layoutOf()
   const pool = await scanPool(layout.root, layout.mainDir)
 
-  console.log(`root: ${layout.root} · main: ${layout.mainDir}\n`)
+  console.log(`pool: ${layout.root} · repo: ${layout.mainDir}\n`)
 
   if (pool.length === 0) {
     console.log(`no slots yet in ${layout.root}`)

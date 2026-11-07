@@ -1,9 +1,10 @@
 import type { RatoonOptions } from './cli.ts'
 import type { PoolSlot } from './state.ts'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { branchExists, currentBranch, deleteBranchIfUnchanged, park, pruneWorktrees } from './git.ts'
 import { describeHooks, loadHooks } from './hooks.ts'
+import { ensureRatoonIgnored, IGNORE_RULE } from './init.ts'
 import { layoutOf, resolveBaseRef } from './layout.ts'
 import { exec, rmrf, run } from './shell.ts'
 import { claim, clearTask, isFree, release, scanPool } from './state.ts'
@@ -15,12 +16,21 @@ function message(err: unknown): string {
 }
 
 export async function runStart(opts: RatoonOptions, task: string): Promise<void> {
-  const layout = layoutOf(opts)
+  const layout = layoutOf()
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout
 
-  const base = await resolveBaseRef(opts, layout.mainDir)
+  const base = await resolveBaseRef(opts, mainDir)
+  // before the ignore line is written, so the warning reflects the user's own dirt, not our edit
   await warnUncommittedMain(mainDir, base)
+
+  // Slots need exactly one thing from the repository: git must ignore the pool. Write that line on
+  // the first start, so a plain `git init` is enough to begin — `ratoon init` is only for plugins.
+  const ignored = ensureRatoonIgnored(mainDir)
+  if (ignored !== 'present')
+    console.log(`\n  .gitignore  ${ignored} ${IGNORE_RULE} — commit it so the pool stays out of git\n`)
+  // the pool itself is created on demand: an empty ignored directory is not an installation marker
+  mkdirSync(root, { recursive: true })
 
   let slot: PoolSlot | undefined
   let isNew = false
@@ -152,7 +162,7 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
     console.log('\n[2/3] onStart\n')
     const ranHooks = await hooks.run('onStart')
     if (!hooks.present)
-      console.log('no .ratoon/hooks.ts — skipped\n')
+      console.log('no hooks.ts in the pool or the repository — skipped\n')
 
     // done working in it, not done with it: the task stays on the slot and the branch says so
     release(root, claimed)
@@ -165,7 +175,7 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
     // The most common first-run surprise: an empty hooks array installs nothing and the slot looks
     // broken. Say so once here, where the consequence shows up.
     if (hooks.present && hooks.count === 0)
-      console.log('  hint    : .ratoon/hooks.ts enables no plugins — starters live in .ratoon/plugins/\n')
+      console.log('  hint    : no plugins enabled — starters live in .ratoon/plugins/\n')
   }
   catch (err) {
     try {

@@ -16,7 +16,7 @@ import { runStart } from './start.ts'
  * A consumer that stops reading — `| head`, `| grep -m1`, a nushell pipeline that errors out —
  * closes the pipe while we are still writing. Node turns that into an *unhandled* 'error' event on
  * the socket: a raw stack trace and an immediate exit, which for `finish` lands mid-lock and used
- * to leave the container permanently locked. Output the reader no longer wants is not something we
+ * to leave the pool permanently locked. Output the reader no longer wants is not something we
  * can act on, so swallow it and let the command run to completion (and release its lock).
  */
 function discardBrokenPipe(err: NodeJS.ErrnoException): void {
@@ -29,12 +29,6 @@ process.stdout.on('error', discardBrokenPipe)
 process.stderr.on('error', discardBrokenPipe)
 
 export interface RatoonOptions {
-  /** worktrees container directory — holds the main repo, the slots and their state */
-  root: string
-  /** `--root` was passed: an explicit root is used as-is, never searched for */
-  rootGiven: boolean
-  /** main repository inside root, relative paths are resolved against root ("" = auto-detect) */
-  main: string
   /** base ref: starting point on start, rebase target on finish (finish still merges into main's HEAD) */
   base: string
   /** base ref was not given explicitly, discovered from the repository */
@@ -44,14 +38,6 @@ export interface RatoonOptions {
 
 /** Shared by the root command and every subcommand — see `hoistGlobalOptions` for why both. */
 export const sharedArgs = {
-  'root': {
-    type: 'string',
-    description: 'worktrees container directory (default: current directory)',
-  },
-  'main': {
-    type: 'string',
-    description: 'main repository inside --root (default: auto-detected, the only directory whose .git is a directory)',
-  },
   'base': {
     type: 'string',
     description: 'starting point / rebase target (finish still merges into the main worktree\'s checked-out branch)',
@@ -89,19 +75,15 @@ export function validateTask(task: string, command: string): void {
   }
 }
 
-/** The subset of citty's parsed args ratoon reads. */
+/** The subset of citty's parsed args ratoon reads. Subcommands add their own keys. */
 interface SharedArgValues {
-  'root'?: string
-  'main'?: string
   'base'?: string
   'branch-prefix'?: string
+  [key: string]: unknown
 }
 
 function toOptions(args: SharedArgValues): RatoonOptions {
   return {
-    root: path.resolve(args.root ?? process.cwd()),
-    rootGiven: args.root !== undefined,
-    main: args.main ?? '',
     base: args.base ?? '',
     baseAuto: args.base === undefined,
     branchPrefix: args['branch-prefix'] ?? 'feature/',
@@ -146,7 +128,7 @@ const startCommand = defineCommand({
 const finishCommand = defineCommand({
   meta: {
     name: 'finish',
-    description: 'verify -> land the task as one commit (title from -m) -> rebase base -> ff-merge -> park detached -> delete branch -> free slot',
+    description: 'verify -> onFinish -> squash into one commit (title from -m) -> rebase base -> ff-merge -> park detached -> delete branch -> free slot',
   },
   args: {
     task: {
@@ -200,24 +182,31 @@ const listCommand = defineCommand({
 const initCommand = defineCommand({
   meta: {
     name: 'init',
-    description: 'scaffold a container: package.json, tsconfig, AGENTS.md, .ratoon/hooks.ts',
+    description: 'create the optional hook toolbox: hooks.ts, types and starter plugins (slots work without it)',
   },
   args: {
-    root: sharedArgs.root,
     force: {
       type: 'boolean',
       default: false,
-      description: 'overwrite the scaffolding files that already exist',
+      description: 'removed — init only writes files that are missing (delete one to take a newer copy)',
     },
   },
-  run: ({ args }) => guard(args, opts => runInit(opts, { force: args.force === true })),
+  run: ({ args }) => guard(args, () => {
+    if (args.force === true) {
+      throw new Error(
+        '--force was removed: init only writes files that are missing\n'
+        + 'to take a newer copy of a generated file, delete it and run init again.',
+      )
+    }
+    return runInit()
+  }),
 })
 
 export const cli = defineCommand({
   meta: {
     name: 'ratoon',
     version: version(),
-    description: 'Worktree slot pool CLI with container-level lifecycle hooks',
+    description: 'Parallel git worktrees for long-running tasks and agents',
   },
   args: sharedArgs,
   subCommands: {
@@ -236,8 +225,8 @@ const VALUE_FLAGS = new Set(
 )
 
 /**
- * citty hands a subcommand everything *after* its name, so `ratoon --root X list` would drop
- * `--root` on the floor and fall back to cwd. Move leading options behind the subcommand so both
+ * citty hands a subcommand everything *after* its name, so `ratoon --base trunk list` would drop
+ * `--base` on the floor and fall back to cwd. Move leading options behind the subcommand so both
  * orders behave the same.
  */
 export function hoistGlobalOptions(rawArgs: string[]): string[] {

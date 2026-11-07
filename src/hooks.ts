@@ -24,7 +24,7 @@ export interface HookFacts {
 }
 
 export interface HookRunner {
-  /** false when `<root>/.ratoon/hooks.ts` is absent — every call below becomes a no-op */
+  /** false when neither the pool nor the repository has a hooks.ts — every call below is a no-op */
   present: boolean
   /** Plugins the file exports: 0 when it is absent, empty, or has no usable array default. */
   count: number
@@ -32,8 +32,24 @@ export interface HookRunner {
   run: (lifecycle: Lifecycle) => Promise<string[]>
 }
 
-export function hookPath(rootDir: string): string {
-  return path.join(rootDir, '.ratoon', 'hooks.ts')
+/** Repository hooks: versioned, read from the main working tree. */
+export function hookPath(dir: string): string {
+  return path.join(dir, '.ratoon', 'hooks.ts')
+}
+
+/**
+ * Two hook files may exist, and both are loaded. The pool-level one comes first: it sits at
+ * `<pool>/hooks.ts` inside the ignored pool, so it is a machine-local override that never enters
+ * version control. The repository's `.ratoon/hooks.ts` follows. It is read from the main working
+ * tree only — a team may commit it to share the config, but the copy a slot checks out is never
+ * consulted, so the file that runs is the one being edited.
+ */
+function hookFiles(facts: HookFacts): string[] {
+  const candidates = [
+    path.join(facts.rootDir, 'hooks.ts'),
+    hookPath(facts.mainDir),
+  ].map(file => path.resolve(file))
+  return Array.from(new Set(candidates)).filter(exists)
 }
 
 /**
@@ -85,35 +101,42 @@ async function withSlotCwd<T>(slotDir: string, fn: () => Promise<T>): Promise<T>
 }
 
 /**
- * Import `<root>/.ratoon/hooks.ts` once. Loading happens outside the slot claim; the caller
- * decides when to `run()` a lifecycle.
+ * Import every hooks file once and concatenate their plugin arrays, pool-level first. Loading
+ * happens outside the slot claim; the caller decides when to `run()` a lifecycle.
  */
 export async function loadHooks(facts: HookFacts): Promise<HookRunner> {
-  const file = hookPath(facts.rootDir)
+  const files = hookFiles(facts)
   const inert: HookRunner = {
     present: false,
     count: 0,
     run: async () => [],
   }
-  if (!exists(file))
+  if (files.length === 0)
     return inert
 
   const ctx: HookContext = { ...facts }
 
   const plugins = await withSlotCwd(facts.slotDir, async (): Promise<Plugin[] | undefined> => {
-    let mod: Record<string, unknown>
-    try {
-      mod = await import(pathToFileURL(file).href)
+    const all: Plugin[] = []
+    let declared = false
+    for (const file of files) {
+      let mod: Record<string, unknown>
+      try {
+        mod = await import(pathToFileURL(file).href)
+      }
+      catch (err) {
+        throw new Error(`hooks failed to load (${file}):\n${stack(err)}`)
+      }
+      // No array default → the file contributes nothing. The shape is `satisfies Plugin[]`'s job:
+      // Node strips types instead of checking them, so typecheck is the only place it is enforced.
+      const candidate = mod.default
+      if (Array.isArray(candidate)) {
+        declared = true
+        all.push(...candidate as Plugin[])
+      }
     }
-    catch (err) {
-      throw new Error(`hooks failed to load (${file}):\n${stack(err)}`)
-    }
-    // No array default → behave exactly like a missing file. The shape is `satisfies Plugin[]`'s
-    // job: Node strips types instead of checking them, so typecheck is the only place it is
-    // enforced, and re-checking it here would be a second source of truth.
-    const candidate = mod.default
-    return Array.isArray(candidate)
-      ? candidate as Plugin[]
+    return declared
+      ? all
       : undefined
   })
 

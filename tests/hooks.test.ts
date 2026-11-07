@@ -37,8 +37,9 @@ function facts(overrides: Partial<HookFacts> = {}): HookFacts {
   }
 }
 
+/** The versioned repository hooks — read from the main working tree, not from the pool. */
 function write(source: string): void {
-  const file = hookPath(root)
+  const file = hookPath(mainDir)
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, source)
 }
@@ -48,8 +49,8 @@ function stageLog(): string[] {
 }
 
 describe('hook discovery', () => {
-  it('points at the container root, not at a worktree', () => {
-    expect(hookPath('/wt')).toBe(path.join('/wt', '.ratoon', 'hooks.ts'))
+  it('points at the repository config, not at a worktree', () => {
+    expect(hookPath('/repo')).toBe(path.join('/repo', '.ratoon', 'hooks.ts'))
   })
 
   it('is inert when the file is missing', async () => {
@@ -64,7 +65,7 @@ describe('hook discovery', () => {
     expect((await loadHooks(facts())).present).toBe(true)
   })
 
-  it('accepts an empty config — a container that only wants the slot pool', async () => {
+  it('accepts an empty config — a repository that only wants the slot pool', async () => {
     write(`export default {}\n`)
     const runner = await loadHooks(facts())
     expect(runner.present).toBe(true)

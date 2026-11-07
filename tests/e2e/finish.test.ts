@@ -1,14 +1,15 @@
-import type { Container } from '../helpers/container.ts'
+import type { Repo } from '../helpers/repo.ts'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { BLOCKING_FINISH, FAIL_ON_FINISH, MARKER, TASK_FILE } from '../helpers/hooks.ts'
 import {
   commitAll,
   finish as finishCli,
   gitOut,
   gitStatus,
   hooksLine,
-  makeContainer,
+  makeRepo,
   slotBranch,
   slotDir,
   slotTask,
@@ -16,13 +17,12 @@ import {
   waitForFile,
   writeFile,
   writeHooks,
-} from '../helpers/container.ts'
-import { BLOCKING_FINISH, FAIL_ON_FINISH, MARKER, TASK_FILE } from '../helpers/hooks.ts'
+} from '../helpers/repo.ts'
 
-let c: Container
+let c: Repo
 
 beforeEach(async () => {
-  c = await makeContainer()
+  c = await makeRepo()
 })
 
 afterEach(() => {
@@ -57,7 +57,7 @@ function commitInSlot(dir: string, file: string, content: string, message: strin
 describe('ratoon finish', () => {
   it('parks a slot whose branch merged nothing and frees it', async () => {
     await start(c, 'empty-task')
-    const before = gitOut(c.proj, 'rev-parse', 'master')
+    const before = gitOut(c.repo, 'rev-parse', 'master')
 
     // nothing to land means nothing to title — no `-m` needed
     const result = await finishUntitled('empty-task')
@@ -65,10 +65,10 @@ describe('ratoon finish', () => {
     expect(result.stdout).toContain('[1/4] verifying feature/empty-task in slot-0')
     expect(result.stdout).toContain('feature/empty-task is already on top of master')
     expect(result.stdout).toContain('[4/4] parking slot slot-0')
-    expect(hooksLine(result.stdout)).toBe('plugins : none')
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (taskNotes)')
 
-    expect(gitOut(c.proj, 'rev-parse', 'master')).toBe(before)
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/empty-task')).toBe('')
+    expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(before)
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/empty-task')).toBe('')
     expect(gitOut(slotDir(c, 'slot-0'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
     expect(slotState()).toMatchObject({ busy: false })
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
@@ -76,7 +76,7 @@ describe('ratoon finish', () => {
 
   it('lands nothing when the task commits cancel out, instead of leaking drafts', async () => {
     await start(c, 'net-zero')
-    const before = gitOut(c.proj, 'rev-parse', 'master')
+    const before = gitOut(c.repo, 'rev-parse', 'master')
     const slot = slotDir(c, 'slot-0')
 
     commitInSlot('slot-0', 'scratch.txt', 'work in progress\n', 'wip: try something')
@@ -89,8 +89,8 @@ describe('ratoon finish', () => {
     expect(result.stdout).not.toContain('squashed')
 
     // neither the drafts nor an empty commit: the base does not move at all
-    expect(gitOut(c.proj, 'rev-parse', 'master')).toBe(before)
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/net-zero')).toBe('')
+    expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(before)
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/net-zero')).toBe('')
     expect(slotState()).toMatchObject({ busy: false })
   })
 
@@ -119,8 +119,8 @@ describe('ratoon finish', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('feature/ship-it is already on top of master')
 
-    expect(gitOut(c.proj, 'rev-parse', 'master')).toBe(head)
-    expect(gitOut(c.proj, 'rev-list', '--merges', 'master')).toBe('')
+    expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(head)
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
   })
 
@@ -133,9 +133,9 @@ describe('ratoon finish', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('  commit  : feat(a): the real title')
 
-    expect(gitOut(c.proj, 'show', '--format=%s', '-s', 'master')).toBe('feat(a): the real title')
-    expect(gitOut(c.proj, 'show', '--format=%b', '-s', 'master')).toBe('')
-    expect(gitOut(c.proj, 'rev-list', '--count', 'master')).toBe('2')
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'master')).toBe('feat(a): the real title')
+    expect(gitOut(c.repo, 'show', '--format=%b', '-s', 'master')).toBe('')
+    expect(gitOut(c.repo, 'rev-list', '--count', 'master')).toBe('2')
   })
 
   it('drops a draft body even when the subject already matches the title', async () => {
@@ -145,8 +145,8 @@ describe('ratoon finish', () => {
 
     const result = await finish('same-subject', [], 'feat(same): final title')
     expect(result.status).toBe(0)
-    expect(gitOut(c.proj, 'show', '--format=%s', '-s', 'master')).toBe('feat(same): final title')
-    expect(gitOut(c.proj, 'show', '--format=%b', '-s', 'master')).toBe('')
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'master')).toBe('feat(same): final title')
+    expect(gitOut(c.repo, 'show', '--format=%b', '-s', 'master')).toBe('')
   })
 
   it('stamps the landing time on the commit it creates', async () => {
@@ -157,8 +157,8 @@ describe('ratoon finish', () => {
 
     const result = await finish('backdated', [], 'feat: the real title')
     expect(result.status).toBe(0)
-    const author = gitOut(c.proj, 'show', '-s', '--format=%aI', 'master')
-    const committer = gitOut(c.proj, 'show', '-s', '--format=%cI', 'master')
+    const author = gitOut(c.repo, 'show', '-s', '--format=%aI', 'master')
+    const committer = gitOut(c.repo, 'show', '-s', '--format=%cI', 'master')
     expect(author).toBe(committer)
     expect(author).not.toContain('2001')
   })
@@ -167,11 +167,11 @@ describe('ratoon finish', () => {
     const title = 'feat: already final\n\nsecond line'
     await start(c, 'already-final')
     commitInSlot('slot-0', 'a.txt', 'a\n', title)
-    const branch = gitOut(c.proj, 'rev-parse', 'feature/already-final')
+    const branch = gitOut(c.repo, 'rev-parse', 'feature/already-final')
 
     const result = await finish('already-final', [], title)
     expect(result.status).toBe(0)
-    expect(gitOut(c.proj, 'rev-parse', 'master')).toBe(branch)
+    expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(branch)
   })
 
   it('refuses to land without a title, and says what the commits are', async () => {
@@ -185,8 +185,8 @@ describe('ratoon finish', () => {
     expect(result.stderr).toContain('commits on feature/untitled:\n  step one')
 
     // nothing was touched: branch, commit, slot and base are exactly as they were
-    expect(gitOut(c.proj, 'log', '--format=%s').split('\n')).toEqual(['init'])
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/untitled')).toContain('feature/untitled')
+    expect(gitOut(c.repo, 'log', '--format=%s').split('\n')).toEqual(['init'])
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/untitled')).toContain('feature/untitled')
     expect(slotState()).toMatchObject({ busy: true, task: 'untitled', branch: 'feature/untitled' })
   })
 
@@ -195,16 +195,16 @@ describe('ratoon finish', () => {
     commitInSlot('slot-0', 'feature.txt', 'from task\n', 'task work')
 
     // someone else lands work on the base branch while the task runs
-    writeFile(path.join(c.proj, 'unrelated.txt'), 'mainline\n')
-    await commitAll(c.proj, 'mainline work')
+    writeFile(path.join(c.repo, 'unrelated.txt'), 'mainline\n')
+    await commitAll(c.repo, 'mainline work')
 
     const result = await finish('behind-task')
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('master has new commits — rebasing feature/behind-task onto master')
 
-    expect(gitOut(c.proj, 'rev-list', '--merges', 'master')).toBe('')
-    expect(gitOut(c.proj, 'rev-list', '--count', 'master')).toBe('3')
-    expect(gitOut(c.proj, 'show', '--format=%s', '-s', 'master')).toBe('feat: behind-task')
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
+    expect(gitOut(c.repo, 'rev-list', '--count', 'master')).toBe('3')
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'master')).toBe('feat: behind-task')
     expect(slotState()).toMatchObject({ busy: false })
   })
 
@@ -213,19 +213,19 @@ describe('ratoon finish', () => {
     commitInSlot('slot-0', 'a.txt', 'a\n', 'step one')
     commitInSlot('slot-0', 'b.txt', 'b\n', 'step two')
 
-    const before = Number(gitOut(c.proj, 'rev-list', '--count', 'master'))
+    const before = Number(gitOut(c.repo, 'rev-list', '--count', 'master'))
     const result = await finish('two-step')
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('  commit  : feat: two-step')
     expect(result.stdout).toContain('  squashed: 2 draft commits')
 
     // one task, one line on the base — titled by the caller; draft messages are gone
-    expect(Number(gitOut(c.proj, 'rev-list', '--count', 'master'))).toBe(before + 1)
-    expect(gitOut(c.proj, 'show', '--format=%s', '-s', 'master')).toBe('feat: two-step')
-    expect(gitOut(c.proj, 'show', '--format=%b', '-s', 'master')).toBe('')
-    expect(gitOut(c.proj, 'show', 'master:a.txt')).toBe('a')
-    expect(gitOut(c.proj, 'show', 'master:b.txt')).toBe('b')
-    expect(gitOut(c.proj, 'rev-list', '--merges', 'master')).toBe('')
+    expect(Number(gitOut(c.repo, 'rev-list', '--count', 'master'))).toBe(before + 1)
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'master')).toBe('feat: two-step')
+    expect(gitOut(c.repo, 'show', '--format=%b', '-s', 'master')).toBe('')
+    expect(gitOut(c.repo, 'show', 'master:a.txt')).toBe('a')
+    expect(gitOut(c.repo, 'show', 'master:b.txt')).toBe('b')
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
     expect(gitOut(slotDir(c, 'slot-0'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
   })
 
@@ -242,7 +242,7 @@ describe('ratoon finish', () => {
     expect(result.stderr).not.toContain('changes to versioned files')
 
     // nothing was merged and the slot is still taken
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/dirty-task')).toContain('feature/dirty-task')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/dirty-task')).toContain('feature/dirty-task')
     expect(slotState()).toMatchObject({ busy: true, task: 'dirty-task' })
   })
 
@@ -263,7 +263,7 @@ describe('ratoon finish', () => {
     writeHooks(c, TASK_FILE)
     await start(c, 'scratch-task')
 
-    const notes = path.join(c.root, '.state', 'slot-0', 'TASK.md')
+    const notes = path.join(c.pool, '.state', 'slot-0', 'TASK.md')
     expect(existsSync(notes)).toBe(true)
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
 
@@ -284,7 +284,7 @@ describe('ratoon finish', () => {
     const result = await finish('paused-notes')
     expect(result.status).toBe(2)
 
-    const notes = path.join(c.root, '.state', 'slot-0', 'TASK.md')
+    const notes = path.join(c.pool, '.state', 'slot-0', 'TASK.md')
     expect(readFileSync(notes, 'utf8')).toContain('TASK: paused-notes')
   })
 
@@ -294,14 +294,14 @@ describe('ratoon finish', () => {
 
     // the hook announces itself and then waits for us — no sleeping and hoping
     const finishing = finish('slow-hook')
-    await waitForFile(path.join(c.root, 'hook-running'))
+    await waitForFile(path.join(c.pool, 'hook-running'))
 
     // still blocked: a start must not be waiting on user code in another slot
     const other = await start(c, 'meanwhile')
     expect(other.status, `stdout:\n${other.stdout}\nstderr:\n${other.stderr}`).toBe(0)
     expect(slotState('slot-1')).toMatchObject({ busy: true, task: 'meanwhile' })
 
-    writeFile(path.join(c.root, 'hook-release'), '')
+    writeFile(path.join(c.pool, 'hook-release'), '')
     const done = await finishing
     expect(done.status, `stdout:\n${done.stdout}\nstderr:\n${done.stderr}`).toBe(0)
     expect(hooksLine(done.stdout)).toBe('plugins : loaded (blocking)')
@@ -314,20 +314,20 @@ describe('ratoon finish', () => {
     writeHooks(c, BLOCKING_FINISH)
 
     const first = finish('same-task')
-    await waitForFile(path.join(c.root, 'hook-running'))
+    await waitForFile(path.join(c.pool, 'hook-running'))
 
     // the slot is claimed for the whole finish, so this one cannot get in at all
     const second = await finish('same-task')
     expect(second.status).toBe(2)
     expect(second.stderr).toMatch(/slot slot-0 is busy \(pid \d+\)/)
     expect(second.stderr).toContain('nothing was changed')
-    expect(gitOut(c.proj, 'log', '--format=%s')).toBe('init')
+    expect(gitOut(c.repo, 'log', '--format=%s')).toBe('init')
 
-    writeFile(path.join(c.root, 'hook-release'), '')
+    writeFile(path.join(c.pool, 'hook-release'), '')
     const done = await first
     expect(done.status, `stdout:\n${done.stdout}\nstderr:\n${done.stderr}`).toBe(0)
-    expect(gitOut(c.proj, 'log', '--format=%s').split('\n')).toEqual(['feat: same-task', 'init'])
-    expect(gitOut(c.proj, 'rev-list', '--merges', 'master')).toBe('')
+    expect(gitOut(c.repo, 'log', '--format=%s').split('\n')).toEqual(['feat: same-task', 'init'])
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
     expect(slotState()).toMatchObject({ busy: false })
   })
 
@@ -340,7 +340,7 @@ describe('ratoon finish', () => {
     expect(result.stderr).toContain('plugin "boom" failed in onFinish')
     expect(result.stderr).toContain('finish boom')
 
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/fail-finish')).toContain('feature/fail-finish')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/fail-finish')).toContain('feature/fail-finish')
     expect(gitOut(slotDir(c, 'slot-0'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feature/fail-finish')
     expect(slotState()).toMatchObject({ busy: true, task: 'fail-finish' })
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
@@ -378,8 +378,8 @@ describe('ratoon finish', () => {
     writeFile(path.join(slotDir(c, 'slot-0'), 'index.js'), 'export const x = 2\n')
     gitOut(slotDir(c, 'slot-0'), 'add', 'index.js')
     gitOut(slotDir(c, 'slot-0'), 'commit', '-m', 'task edit')
-    writeFile(path.join(c.proj, 'index.js'), 'export const x = 3\n')
-    await commitAll(c.proj, 'mainline edit')
+    writeFile(path.join(c.repo, 'index.js'), 'export const x = 3\n')
+    await commitAll(c.repo, 'mainline edit')
 
     const first = await finish('clashing-task')
     expect(first.status).toBe(2)
@@ -401,8 +401,8 @@ describe('ratoon finish', () => {
     writeFile(path.join(slotDir(c, 'slot-0'), 'index.js'), 'export const x = 2\n')
     gitOut(slotDir(c, 'slot-0'), 'add', 'index.js')
     gitOut(slotDir(c, 'slot-0'), 'commit', '-m', 'task edit')
-    writeFile(path.join(c.proj, 'index.js'), 'export const x = 3\n')
-    await commitAll(c.proj, 'mainline edit')
+    writeFile(path.join(c.repo, 'index.js'), 'export const x = 3\n')
+    await commitAll(c.repo, 'mainline edit')
 
     const first = await finish('edit-only')
     expect(first.status).toBe(2)
@@ -413,7 +413,7 @@ describe('ratoon finish', () => {
     const second = await finish('edit-only')
     expect(second.status, `stdout:\n${second.stdout}\nstderr:\n${second.stderr}`).toBe(0)
     expect(second.stdout).toContain('conflicts resolved — continuing the rebase')
-    expect(gitOut(c.proj, 'show', 'master:index.js')).toBe('export const x = 4')
+    expect(gitOut(c.repo, 'show', 'master:index.js')).toBe('export const x = 4')
     expect(slotState()).toMatchObject({ busy: false })
   })
 
@@ -422,8 +422,8 @@ describe('ratoon finish', () => {
     writeFile(path.join(slotDir(c, 'slot-0'), 'index.js'), 'export const x = 2\n')
     gitOut(slotDir(c, 'slot-0'), 'add', 'index.js')
     gitOut(slotDir(c, 'slot-0'), 'commit', '-m', 'task edit')
-    writeFile(path.join(c.proj, 'index.js'), 'export const x = 3\n')
-    await commitAll(c.proj, 'mainline edit')
+    writeFile(path.join(c.repo, 'index.js'), 'export const x = 3\n')
+    await commitAll(c.repo, 'mainline edit')
 
     const first = await finish('resolve-me')
     expect(first.status).toBe(2)
@@ -438,8 +438,8 @@ describe('ratoon finish', () => {
     expect(second.status, `stdout:\n${second.stdout}\nstderr:\n${second.stderr}`).toBe(0)
     expect(second.stdout).toContain('conflicts resolved — continuing the rebase')
     expect(second.stdout).toContain('Done. Slot parked')
-    expect(gitOut(c.proj, 'show', 'master:index.js')).toBe('export const x = 4')
-    expect(gitOut(c.proj, 'rev-list', '--merges', 'master')).toBe('')
+    expect(gitOut(c.repo, 'show', 'master:index.js')).toBe('export const x = 4')
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
     expect(slotState()).toMatchObject({ busy: false })
   })
 
@@ -447,8 +447,8 @@ describe('ratoon finish', () => {
     await start(c, 'twice')
     commitInSlot('slot-0', 'index.js', 'export const x = 11\n', 'step one')
     commitInSlot('slot-0', 'index.js', 'export const x = 22\n', 'step two')
-    writeFile(path.join(c.proj, 'index.js'), 'export const x = 33\n')
-    await commitAll(c.proj, 'mainline edit')
+    writeFile(path.join(c.repo, 'index.js'), 'export const x = 33\n')
+    await commitAll(c.repo, 'mainline edit')
 
     // the squash runs before the rebase, so only one commit is ever replayed
     const first = await finish('twice')
@@ -464,10 +464,10 @@ describe('ratoon finish', () => {
     expect(second.stdout).toContain('conflicts resolved — continuing the rebase')
     expect(second.stdout).toContain('Done. Slot parked')
 
-    expect(gitOut(c.proj, 'show', '--format=%s', '-s', 'master')).toBe('feat: twice')
-    expect(gitOut(c.proj, 'show', '--format=%b', '-s', 'master')).toBe('')
-    expect(gitOut(c.proj, 'show', 'master:index.js')).toBe('export const x = 222')
-    expect(gitOut(c.proj, 'rev-list', '--merges', 'master')).toBe('')
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'master')).toBe('feat: twice')
+    expect(gitOut(c.repo, 'show', '--format=%b', '-s', 'master')).toBe('')
+    expect(gitOut(c.repo, 'show', 'master:index.js')).toBe('export const x = 222')
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
     expect(slotState()).toMatchObject({ busy: false })
   })
 })

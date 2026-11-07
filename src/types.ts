@@ -1,14 +1,15 @@
 /**
  * Everything a lifecycle callback receives: where the slot is, which task it is doing, and which
  * base it was cut from. Facts only — running a command, reading a file or spawning a process is
- * the hook's own business (`node:fs`, `node:child_process`, or whatever you add to the container).
+ * the hook's own business (`node:fs`, `node:child_process`, or whatever the project installs).
  *
  * While a callback runs the process cwd is the slot, so relative paths and `spawn` calls land
  * there without being told.
  */
 export interface HookContext {
-  /** worktrees container directory (holds the main repo, the slots, .ratoon) */
+  /** the pool, always `<repo>/.ratoon/worktrees/` — holds the slots and `.state/` */
   rootDir: string
+  /** the repository's own working tree */
   mainDir: string
   slotDir: string
   branch: string
@@ -41,12 +42,14 @@ export interface Plugin {
 }
 
 /**
- * `<root>/.ratoon/hooks.ts` default-exports an array of these:
+ * `<repo>/.ratoon/hooks.ts` default-exports an array of these:
  *
  *   export default [taskNotes(), npmInstall()] satisfies Plugin[]
  *
- * Everything is a plugin — your own code included — so there is a single ordered list and no
- * special "host" position. Array order is execution order, independently for each lifecycle:
+ * An optional `<pool>/hooks.ts` is loaded first as a machine-local override — the pool is
+ * gitignored, so it never enters version control. The arrays are concatenated: everything is a
+ * plugin, your own code included, with one ordered list and no special "host" position. Array
+ * order is execution order, independently for each lifecycle:
  *
  *   ratoon start : engine(claim) → plugins[].onBeforeCheckout → engine(branch → clean) → plugins[].onStart
  *   ratoon finish: engine(locate → claim) → plugins[].onFinish in array order → engine(land)

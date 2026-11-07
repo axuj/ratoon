@@ -1,20 +1,20 @@
-import type { Container } from '../helpers/container.ts'
-import { mkdirSync } from 'node:fs'
+import type { Repo } from '../helpers/repo.ts'
+import { mkdirSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   finish,
   gitOut,
-  makeContainer,
+  makeRepo,
   ratoon,
   slotDir,
   start,
-} from '../helpers/container.ts'
+} from '../helpers/repo.ts'
 
-let c: Container
+let c: Repo
 
 beforeEach(async () => {
-  c = await makeContainer()
+  c = await makeRepo()
 })
 
 afterEach(() => {
@@ -22,14 +22,14 @@ afterEach(() => {
 })
 
 function list(extra: string[] = []) {
-  return ratoon(['list', '--root', c.root, ...extra])
+  return ratoon(['list', ...extra], { cwd: c.repo })
 }
 
 describe('ratoon list', () => {
   it('says so when the pool is empty', async () => {
     const result = await list()
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain(`no slots yet in ${c.root}`)
+    expect(result.stdout).toContain(`no slots yet in ${c.pool}`)
   })
 
   it('renders a table with status, task and checked-out branch', async () => {
@@ -47,51 +47,45 @@ describe('ratoon list', () => {
     expect(result.stdout).toContain('2 slot(s) · 2 busy · 0 free')
   })
 
-  it('names the container and the main repo above the table', async () => {
+  it('names the pool and the main repo above the table', async () => {
     await start(c, 'alpha')
 
     const result = await list()
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain(`root: ${c.root}`)
-    expect(result.stdout).toContain(`main: ${path.join(c.root, 'proj')}`)
+    expect(result.stdout).toContain(`pool: ${c.pool}`)
+    expect(result.stdout).toContain(`repo: ${c.repo}`)
     expect(result.stdout).toMatch(/slot-0\s+busy\s+alpha\s+feature\/alpha/)
   })
 
-  it('finds the container from inside the repository it manages', async () => {
+  it('finds the pool from inside the repository it manages', async () => {
     await start(c, 'alpha')
 
-    const result = await ratoon(['list'], { cwd: c.proj })
+    const result = await ratoon(['list'], { cwd: c.repo })
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain(`root: ${c.root}`)
+    expect(result.stdout).toContain(`pool: ${c.pool}`)
     expect(result.stdout).toMatch(/slot-0\s+busy\s+alpha\s+feature\/alpha/)
   })
 
-  it('finds the container from a subdirectory of a slot', async () => {
+  it('finds the pool from a subdirectory of a slot', async () => {
     await start(c, 'alpha')
 
     const result = await ratoon(['list'], {
       cwd: path.join(slotDir(c, 'slot-0'), 'vendor'),
     })
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain(`root: ${c.root}`)
+    // git reports the long form of a path; the temp directory is an 8.3 short name
+    expect(result.stdout).toContain(`pool: ${realpathSync.native(c.pool)}`)
   })
 
-  it('takes an explicit --root as given, never walking up from it', async () => {
-    const inner = path.join(c.proj, 'vendor', 'tiny')
-
-    const result = await ratoon(['list', '--root', inner])
-    expect(result.status).toBe(1)
-    expect(result.stderr).toContain(`no main git repository found under ${inner}`)
-  })
-
-  it('does not mistake a repository that merely lives somewhere for a container', async () => {
+  it('lists a repository that never ran init as having no slots', async () => {
     const outside = path.join(c.tmp, 'outside')
     mkdirSync(outside, { recursive: true })
     gitOut(outside, 'init', '-b', 'master')
 
     const result = await ratoon(['list'], { cwd: outside })
-    expect(result.status).toBe(1)
-    expect(result.stderr).toContain('no ratoon container found')
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('no slots yet')
+    expect(result.stdout).toContain(path.join(outside, '.ratoon', 'worktrees'))
   })
 
   it('shows a parked slot as free and detached once it is finished', async () => {
@@ -104,7 +98,7 @@ describe('ratoon list', () => {
   })
 
   it('shows a directory with no worktree as unknown instead of hiding it', async () => {
-    mkdirSync(path.join(c.root, 'slot-0'))
+    mkdirSync(path.join(c.pool, 'slot-0'), { recursive: true })
     await start(c, 'alpha') // lands in slot-1, because slot-0 is not the pool's to hand out
 
     const result = await list()

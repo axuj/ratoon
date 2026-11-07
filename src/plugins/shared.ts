@@ -5,7 +5,7 @@ import path from 'node:path'
 
 /**
  * Shared by the starter plugins, not a plugin itself. Everything here is a plain function, so a
- * container can edit or replace it without touching the engine.
+ * project can edit or replace it without touching the engine.
  */
 
 /**
@@ -58,7 +58,7 @@ function declaredManager(dir: string): string | null {
  *
  * The JS ecosystem's detector (antfu's `package-manager-detector`, the one shadcn/ni use) reads the
  * explicit `packageManager` / `devEngines.packageManager` field first, then the lockfiles. This is
- * the same order in a few lines, with nothing to install in the container. `nub.lock` leads the
+ * the same order in a few lines, with nothing to install in the pool. `nub.lock` leads the
  * default table, so a nub project still gets `nub install` if the field is missing.
  */
 export function detectManager(

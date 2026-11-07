@@ -1,5 +1,5 @@
 /**
- * Hook-file fixtures written to `<root>/.ratoon/hooks.ts` by the e2e suites.
+ * Hook-file fixtures written to `<repo>/.ratoon/hooks.ts` by the e2e suites.
  *
  * Everything — including your own code — is a plugin in one ordered array, matching the file
  * `ratoon init` generates:
@@ -79,8 +79,8 @@ export default [{
 
 /**
  * A deliberately slow `onFinish`: announces itself, then waits for a release file that the test
- * writes later. Hooks run outside the container lock, so another task must be able to start
- * while this one waits.
+ * writes later. Hooks run outside the pool lock, so another task must be able to start while this
+ * one waits.
  */
 export const BLOCKING_FINISH = `import { existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'

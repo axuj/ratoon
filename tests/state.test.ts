@@ -25,7 +25,7 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
   await run('git', ['-C', cwd, ...args], { quiet: true })
 }
 
-/** A container with one commit on master and no slots yet. */
+/** A repository with one commit on master and no slots yet. */
 async function makeRepo(): Promise<void> {
   mainDir = path.join(root, 'proj')
   mkdirSync(mainDir, { recursive: true })

@@ -1,4 +1,4 @@
-import type { Container } from '../helpers/container.ts'
+import type { Repo } from '../helpers/repo.ts'
 import { existsSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -8,18 +8,18 @@ import {
   finish,
   gitOut,
   gitStatus,
-  makeContainer,
+  makeRepo,
   slotBranch,
   slotDir,
   slotTask,
   start,
   writeFile,
-} from '../helpers/container.ts'
+} from '../helpers/repo.ts'
 
-let c: Container
+let c: Repo
 
 beforeEach(async () => {
-  c = await makeContainer()
+  c = await makeRepo()
 })
 
 afterEach(() => {
@@ -52,7 +52,7 @@ describe('ratoon abandon', () => {
     await start(c, 'dead-end')
     commitInSlot('a.txt', 'one\n', 'step one')
     commitInSlot('b.txt', 'two\n', 'step two')
-    const base = gitOut(c.proj, 'rev-parse', 'master')
+    const base = gitOut(c.repo, 'rev-parse', 'master')
 
     const result = await abandon('dead-end')
     expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0)
@@ -64,9 +64,9 @@ describe('ratoon abandon', () => {
     expect(result.stdout).toContain('[3/3] freeing slot-0 and deleting feature/dead-end')
 
     // the base never moved, and no branch is left behind
-    expect(gitOut(c.proj, 'rev-parse', 'master')).toBe(base)
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/dead-end')).toBe('')
-    expect(gitOut(c.proj, 'rev-list', '--merges', 'master')).toBe('')
+    expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(base)
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/dead-end')).toBe('')
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
 
     // parked and clean, exactly like a finished slot
     expect(gitOut(slotDir(c, 'slot-0'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
@@ -76,8 +76,8 @@ describe('ratoon abandon', () => {
     // the "recover" line is a command that actually works
     const tip = result.stdout.match(/recover: git branch feature\/dead-end-rescued ([0-9a-f]{40})/)?.[1]
     expect(tip, result.stdout).toBeTruthy()
-    gitOut(c.proj, 'branch', 'feature/dead-end-rescued', tip!)
-    expect(gitOut(c.proj, 'show', 'feature/dead-end-rescued:b.txt')).toBe('two')
+    gitOut(c.repo, 'branch', 'feature/dead-end-rescued', tip!)
+    expect(gitOut(c.repo, 'show', 'feature/dead-end-rescued:b.txt')).toBe('two')
   })
 
   it('leaves the slot ready for the next task', async () => {
@@ -102,7 +102,7 @@ describe('ratoon abandon', () => {
     expect(result.stdout).toContain('dropped 2 uncommitted entries')
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
     expect(existsSync(path.join(slotDir(c, 'slot-0'), 'junk.txt'))).toBe(false)
-    expect(gitOut(c.proj, 'show', 'master:README.md')).toBe('# fixture')
+    expect(gitOut(c.repo, 'show', 'master:README.md')).toBe('# fixture')
     expect(slotState()).toMatchObject({ busy: false })
   })
 
@@ -111,20 +111,20 @@ describe('ratoon abandon', () => {
     writeFile(path.join(slotDir(c, 'slot-0'), 'index.js'), 'export const x = 2\n')
     gitOut(slotDir(c, 'slot-0'), 'add', 'index.js')
     gitOut(slotDir(c, 'slot-0'), 'commit', '-m', 'task edit')
-    writeFile(path.join(c.proj, 'index.js'), 'export const x = 3\n')
-    await commitAll(c.proj, 'mainline edit')
+    writeFile(path.join(c.repo, 'index.js'), 'export const x = 3\n')
+    await commitAll(c.repo, 'mainline edit')
 
     const paused = await finish(c, 'conflicted', ['-m', 'feat: conflicted'])
     expect(paused.status).toBe(2)
-    const base = gitOut(c.proj, 'rev-parse', 'master')
+    const base = gitOut(c.repo, 'rev-parse', 'master')
 
     const result = await abandon('conflicted')
     expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0)
     expect(result.stdout).toContain('aborted the rebase that finish paused on')
     expect(result.stdout).toContain('discarding 1 commit')
     expect(gitOut(slotDir(c, 'slot-0'), 'status')).not.toContain('rebase')
-    expect(gitOut(c.proj, 'rev-parse', 'master')).toBe(base)
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/conflicted')).toBe('')
+    expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(base)
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/conflicted')).toBe('')
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
     expect(slotState()).toMatchObject({ busy: false })
   })
@@ -138,7 +138,7 @@ describe('ratoon abandon', () => {
     expect(again.stdout).toContain('Nothing to abandon — feature/twice does not exist and no slot is working on twice')
     // and it does not pretend to have done anything
     expect(again.stdout).not.toContain('Done.')
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/twice')).toBe('')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/twice')).toBe('')
   })
 
   it('refuses to touch a slot that sits on another branch', async () => {
@@ -150,7 +150,7 @@ describe('ratoon abandon', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('slot slot-0 is on branch side-quest, not feature/honest — nothing was changed')
     // still busy, branch intact, commit still there
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/honest')).toContain('feature/honest')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/honest')).toContain('feature/honest')
     expect(gitOut(slotDir(c, 'slot-0'), 'log', '-1', '--format=%s')).toBe('step one')
     expect(slotState()).toMatchObject({ busy: true, task: 'honest' })
   })
@@ -169,6 +169,6 @@ describe('ratoon abandon', () => {
 
     const result = await abandon('orphan')
     expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0)
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/orphan')).toBe('')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/orphan')).toBe('')
   })
 })

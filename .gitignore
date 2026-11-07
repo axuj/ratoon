@@ -4,6 +4,6 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 
-# scratch containers
+# scratch
 tests/.tmp/
-wt-demo/
+ratoon-demo/

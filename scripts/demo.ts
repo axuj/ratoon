@@ -1,17 +1,26 @@
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { refuseSelf, writeScaffolding } from '../src/init.ts'
+import { fileURLToPath } from 'node:url'
+import { ensureRatoonIgnored, refuseSelf, writeScaffolding } from '../src/init.ts'
+import { poolForRepo } from '../src/layout.ts'
 import { exec, run } from '../src/shell.ts'
 
 /**
- * `nub run demo` — a throwaway container with a one-commit repository inside it, so the plugin flow
+ * The demo is a workbench for the checkout it lives in: the printed commands must run this
+ * checkout's CLI, so editing the source takes effect immediately and no global install is needed.
+ * The e2e suites drive the tool the same way.
+ */
+const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url)).replace(/\\/g, '/')
+
+/**
+ * `nub run demo` — a throwaway repository with an ignored slot pool inside it, so the plugin flow
  * can be exercised without a real project. This is scaffolding for *developing* ratoon, which is
  * why it lives behind a package script rather than on the command surface: `init` is the product,
  * this is the workbench.
  *
- * Usage: `nub run demo [-- --root <dir>] [--force]`
- * Default root is `<cwd>/wt-demo` — never the directory you are standing in, because `--force`
+ * Usage: `nub run demo [-- --dir <path>] [--force]`
+ * Default is `<cwd>/ratoon-demo` — never the directory you are standing in, because `--force`
  * wipes whatever it points at.
  */
 
@@ -25,39 +34,49 @@ function arg(name: string): string | undefined {
     : process.argv[at + 1]
 }
 
+/** Written by this script alone, so `--force` can never mistake a real install for a demo. */
+const DEMO_MARKER = 'RATOON_DEMO'
+
 async function demo(): Promise<void> {
-  const dir = path.resolve(arg('root') ?? path.join(process.cwd(), 'wt-demo'))
+  const dir = path.resolve(arg('dir') ?? path.join(process.cwd(), 'ratoon-demo'))
   const force = process.argv.includes('--force')
 
-  // before the wipe: `--force --root <ratoon>` must not be able to delete ratoon
+  // before the wipe: `--force --dir <ratoon>` must not be able to delete ratoon
   refuseSelf(dir)
 
   if (listEntries(dir).length > 0) {
     if (!force)
       throw new Error(`${dir} already exists — pass --force to wipe it and start over.`)
-    if (!isContainer(dir))
-      throw new Error(`refusing to delete ${dir}: it is not a ratoon container (no .ratoon/hooks.ts).`)
+    if (!isDemoRepo(dir))
+      throw new Error(`refusing to delete ${dir}: it is not a ratoon demo (no ${DEMO_MARKER} marker).`)
     rmSync(dir, { recursive: true, force: true })
     console.log(`wiping ${dir}`)
   }
 
+  await makeMainRepo(dir)
+
+  // the same shape `init` writes: ratoon installed into the repository, pool ignored inside it
   const { wrote } = writeScaffolding(dir)
+  ensureRatoonIgnored(dir)
   console.log(`\nscaffolding ${dir}\n  wrote     ${wrote.join(', ')}\n`)
 
   writeDemoHooks(dir)
+  await run('git', ['-C', dir, 'add', '-A'])
+  await run('git', ['-C', dir, 'commit', '-m', 'ratoon'])
 
-  const mainDir = path.join(dir, 'demo')
-  await makeMainRepo(mainDir)
+  // `start` creates the pool on demand, exactly as it does after `ratoon init`
+  const pool = poolForRepo(dir)
 
   console.log(`
 demo ready:
-  main repo   ${mainDir}
+  repository  ${dir}
+  pool        ${pool}
   hooks       ${path.join(dir, '.ratoon', 'hooks.ts')}
 
-try:
-  ratoon start first --root ${dir}
-  ratoon list         --root ${dir}
-  ratoon finish first -m "feat: the first task" --root ${dir}
+try (from ${dir}) — the CLI below is this checkout's source, not a global install:
+  node "${CLI}" start first
+  node "${CLI}" list
+  node "${CLI}" finish first -m "feat: the first task"
 `)
 }
 
@@ -67,9 +86,10 @@ function listEntries(dir: string): string[] {
   return readdirSync(dir)
 }
 
-/** Only a directory this tool wrote may be wiped by `--force`. */
-function isContainer(dir: string): boolean {
-  return existsSync(path.join(dir, '.ratoon', 'hooks.ts')) && existsSync(path.join(dir, 'package.json'))
+/** Only a demo this script created may be wiped by `--force`. */
+function isDemoRepo(dir: string): boolean {
+  return existsSync(path.join(dir, '.git', DEMO_MARKER))
+    && existsSync(path.join(dir, '.ratoon', 'hooks.ts'))
 }
 
 /**
@@ -144,7 +164,7 @@ async function makeMainRepo(dir: string): Promise<void> {
         'A throwaway project for exercising ratoon\'s starter plugins:',
         '',
         '- `npmInstall()` installs the local `file:./vendor/tiny` dependency (no registry) and',
-        '  fingerprints it under `<root>/.state/`, so a warm slot skips the next `start`.',
+        '  fingerprints it under `.ratoon/worktrees/.state/`, so a warm slot skips the next `start`.',
         '- the `build` plugin runs `npm run build` in `onStart` → `dist/out.js`.',
         '- `dist/` is gitignored, so building does not make `finish` refuse to land.',
         '',
@@ -170,6 +190,7 @@ console.log('build ok')
     ['vendor/tiny/index.js', 'export const value = 42\n'],
   ]
 
+  mkdirSync(dir, { recursive: true })
   for (const [rel, content] of files) {
     const target = path.join(dir, rel)
     mkdirSync(path.dirname(target), { recursive: true })
@@ -196,6 +217,7 @@ console.log('build ok')
   }
   await run('git', ['-C', dir, 'add', '-A'])
   await run('git', ['-C', dir, 'commit', '-m', 'demo'])
+  writeFileSync(path.join(dir, '.git', DEMO_MARKER), `${pkg.name} ${pkg.version}\n`)
 }
 
 void demo().catch((err: unknown) => {

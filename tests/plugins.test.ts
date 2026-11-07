@@ -1,6 +1,6 @@
 import type { NpmInstallOptions } from '../src/plugins/npm-install.ts'
 import type { HookContext } from '../src/types.ts'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -127,8 +127,11 @@ describe('taskNotes', () => {
     expect(written).toContain('TASK: x')
     expect(written).toContain('feature/x')
     expect(written).toContain(slotDir)
-    // the plan is the part a killed session cannot re-derive, so it is in the template
+    // a handoff sheet for the human approving finish: real boxes, findings, open questions
     expect(written).toContain('## Plan')
+    expect(written).toContain('- [ ] <first step>')
+    expect(written).toContain('## Findings')
+    expect(written).toContain('## Left open')
     // nothing lands in the worktree: no gitignore, no dirt, nothing to commit
     expect(existsSync(path.join(slotDir, 'TASK.md'))).toBe(false)
   })
@@ -152,6 +155,7 @@ describe('taskNotes', () => {
   })
 
   it('leaves the notes in place in onFinish — reading them later is the point', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const plugin = taskNotes()
     plugin.onStart?.(ctx())
     await plugin.onFinish?.(ctx())
@@ -159,21 +163,28 @@ describe('taskNotes', () => {
     expect(existsSync(path.join(rootDir, '.state', 'slot-0', 'TASK.md'))).toBe(true)
   })
 
-  it('warns about unchecked boxes', async () => {
+  it('warns about an untouched handoff sheet', async () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     taskNotes().onStart?.(ctx())
-    // the default template has no boxes — they are something the worker writes
-    appendFileSync(path.join(rootDir, '.state', 'slot-0', 'TASK.md'), '\n- [ ] still todo\n')
     await taskNotes().onFinish?.(ctx())
 
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('unchecked boxes'))
   })
 
+  it('stops warning once every box is ticked', async () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    taskNotes().onStart?.(ctx())
+    const notes = path.join(rootDir, '.state', 'slot-0', 'TASK.md')
+    writeFileSync(notes, readFileSync(notes, 'utf8').replace('- [ ]', '- [x]'))
+    await taskNotes().onFinish?.(ctx())
+
+    expect(spy).not.toHaveBeenCalled()
+  })
+
   it('can be told not to warn', async () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     taskNotes().onStart?.(ctx())
-    // without a box there is nothing to warn about, and the option would be untested
-    appendFileSync(path.join(rootDir, '.state', 'slot-0', 'TASK.md'), '\n- [ ] still todo\n')
+    // the template starts with an open box, so the option has something to suppress
     await taskNotes({ warnUnchecked: false }).onFinish?.(ctx())
 
     expect(spy).not.toHaveBeenCalled()

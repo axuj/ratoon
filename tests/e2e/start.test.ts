@@ -1,7 +1,8 @@
-import type { Container } from '../helpers/container.ts'
+import type { Repo } from '../helpers/repo.ts'
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { BLOCKING_ALLOCATE, FAIL_ON_START, FAILING_PLUGIN, INSTALL, MARKER, NOISY, ORDERED, TASK_FILE } from '../helpers/hooks.ts'
 import {
   commitAll,
 
@@ -10,7 +11,7 @@ import {
   gitStatus,
   hooksLine,
   installDeps,
-  makeContainer,
+  makeRepo,
   parkSlot,
   ratoon,
   readRootFile,
@@ -22,13 +23,12 @@ import {
   waitForFile,
   writeFile,
   writeHooks,
-} from '../helpers/container.ts'
-import { BLOCKING_ALLOCATE, FAIL_ON_START, FAILING_PLUGIN, INSTALL, MARKER, NOISY, ORDERED, TASK_FILE } from '../helpers/hooks.ts'
+} from '../helpers/repo.ts'
 
-let c: Container
+let c: Repo
 
 beforeEach(async () => {
-  c = await makeContainer()
+  c = await makeRepo()
 })
 
 afterEach(() => {
@@ -40,7 +40,7 @@ function stageLog(): string[] {
 }
 
 function stateFile(): string {
-  return path.join(c.root, '.state', 'slot-0', 'install')
+  return path.join(c.pool, '.state', 'slot-0', 'install')
 }
 
 describe('ratoon start', () => {
@@ -52,27 +52,45 @@ describe('ratoon start', () => {
     expect(result.stdout).toContain('branch  : feature/alpha')
     expect(result.stdout).toContain(`worktree: ${slotDir(c, 'slot-0')}`)
     expect(result.stdout).toContain('base    : master')
-    expect(hooksLine(result.stdout)).toBe('plugins : none')
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (taskNotes)')
 
     expect(slotDirs(c)).toEqual(['slot-0'])
     expect(slotTask(c)).toBe('alpha')
     expect(slotBranch(c)).toBe('feature/alpha')
 
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/alpha')).toContain('feature/alpha')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/alpha')).toContain('feature/alpha')
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
   })
 
-  it('keeps hooks in the container root, out of every worktree', async () => {
+  it('reads the hooks from the main working tree — the slot carries no copy', async () => {
     writeHooks(c, MARKER)
-    await start(c, 'hooked')
+    const result = await start(c, 'hooked')
 
-    expect(existsSync(path.join(c.root, '.ratoon', 'hooks.ts'))).toBe(true)
+    expect(existsSync(path.join(c.repo, '.ratoon', 'hooks.ts'))).toBe(true)
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (marker)')
+    // `.ratoon/` is gitignored local state, so the base commit — and therefore the slot — has none
     expect(existsSync(path.join(slotDir(c, 'slot-0'), '.ratoon'))).toBe(false)
     expect(slotTask(c)).toBe('hooked')
   })
 
-  it('starts from inside the repository, finding the container by walking up', async () => {
-    const result = await ratoon(['start', 'from-inside'], { cwd: c.proj })
+  it('ignores a committed copy in the slot — hooks always come from the main worktree', async () => {
+    // a team that shares the config tracks the file despite `.ratoon/*`
+    writeHooks(c, 'export default [{ name: \'from-slot\', onStart() {} }]\n')
+    gitOut(c.repo, 'add', '-f', '.ratoon/hooks.ts')
+    gitOut(c.repo, 'commit', '-m', 'share hooks')
+
+    // the main working tree keeps a different, uncommitted version
+    writeHooks(c, MARKER)
+    const result = await start(c, 'shared-hooks')
+
+    expect(result.status, result.stderr).toBe(0)
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (marker)')
+    // the slot checked out the committed copy, and it is not what ran
+    expect(readFileSync(path.join(slotDir(c, 'slot-0'), '.ratoon', 'hooks.ts'), 'utf8')).toContain('from-slot')
+  })
+
+  it('starts from inside the repository, resolving the pool through git', async () => {
+    const result = await ratoon(['start', 'from-inside'], { cwd: c.repo })
     expect(result.status).toBe(0)
     expect(result.stdout).toContain(`worktree: ${slotDir(c, 'slot-0')}`)
     expect(slotTask(c)).toBe('from-inside')
@@ -98,17 +116,17 @@ describe('ratoon start', () => {
 
     expect(result.status).toBe(0)
     expect(hooksLine(result.stdout)).toBe('plugins : loaded (no plugins)')
-    expect(result.stdout).toContain('.ratoon/hooks.ts enables no plugins')
+    expect(result.stdout).toContain('no plugins enabled')
   })
 
   it('warns that uncommitted work in the main worktree is not in the slot', async () => {
     const result = await start(c, 'dirty-main')
 
     expect(result.status).toBe(0)
-    // the container fixture is committed by makeContainer, so this run is clean
+    // makeRepo commits the fixture, so this run is clean
     expect(result.stderr).not.toContain('uncommitted')
 
-    writeFile(path.join(c.proj, 'README.md'), 'edited in main\n')
+    writeFile(path.join(c.repo, 'README.md'), 'edited in main\n')
     const second = await start(c, 'dirty-main-again')
     expect(second.stderr).toContain('main worktree has')
     expect(second.stderr).toContain('not in it')
@@ -136,11 +154,11 @@ describe('ratoon start', () => {
     expect(statSync(state).mtimeMs).toBe(mtimeAfterFirst)
 
     // the manifest changes in the main repo, so the fingerprint no longer matches
-    const pkgPath = path.join(c.proj, 'package.json')
+    const pkgPath = path.join(c.repo, 'package.json')
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
     pkg.description = 'bumped'
     writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
-    await commitAll(c.proj, 'bump manifest')
+    await commitAll(c.repo, 'bump manifest')
     parkSlot(c)
     await start(c, 'third-round')
     expect(readFileSync(state, 'utf8')).not.toBe(afterFirst)
@@ -148,7 +166,7 @@ describe('ratoon start', () => {
 
   it('does nothing install-shaped for a non-JS project', async () => {
     c.dispose()
-    c = await makeContainer({ withPackageJson: false })
+    c = await makeRepo({ withPackageJson: false })
     writeHooks(c, INSTALL)
 
     await start(c, 'plain')
@@ -161,7 +179,7 @@ describe('ratoon start', () => {
     const result = await start(c, 'progress')
 
     expect(hooksLine(result.stdout)).toBe('plugins : loaded (taskNotes)')
-    const notes = path.join(c.root, '.state', 'slot-0', 'TASK.md')
+    const notes = path.join(c.pool, '.state', 'slot-0', 'TASK.md')
     expect(readFileSync(notes, 'utf8')).toContain('TASK: progress')
     expect(result.stdout).toContain('notes   :')
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
@@ -187,7 +205,7 @@ describe('ratoon start', () => {
     expect(result.stderr).toContain('start boom')
 
     expect(slotDirs(c)).toEqual(['slot-0'])
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/victim')).toBe('')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/victim')).toBe('')
     expect(slotTask(c)).toBe('occupier')
   })
 
@@ -201,10 +219,10 @@ describe('ratoon start', () => {
     expect(result.stderr).toContain('plugin "boom" failed in onStart')
 
     expect(slotTask(c)).toBe('')
-    expect(gitOut(c.proj, 'branch', '--list', 'feature/victim')).toBe('')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/victim')).toBe('')
     // parked back at the base ref instead of being left on a dead branch
     expect(gitOut(slotDir(c, 'slot-0'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
-    expect(gitOut(slotDir(c, 'slot-0'), 'rev-parse', 'HEAD')).toBe(gitOut(c.proj, 'rev-parse', 'master'))
+    expect(gitOut(slotDir(c, 'slot-0'), 'rev-parse', 'HEAD')).toBe(gitOut(c.repo, 'rev-parse', 'master'))
   })
 
   it('rolls back — and names the plugin — when a plugin throws', async () => {
@@ -245,7 +263,7 @@ describe('ratoon start', () => {
     writeHooks(c, BLOCKING_ALLOCATE)
 
     const first = start(c, 'slow-claim')
-    await waitForFile(path.join(c.root, 'hook-running'))
+    await waitForFile(path.join(c.pool, 'hook-running'))
 
     // the first start is still inside its hook — the claim is over, so this must not wait for it
     const second = await start(c, 'meanwhile')
@@ -254,7 +272,7 @@ describe('ratoon start', () => {
     // start had to grow the pool — the point is that it did not wait for the first one
     expect(slotDirs(c)).toEqual(['slot-1'])
 
-    writeFile(path.join(c.root, 'hook-release'), '')
+    writeFile(path.join(c.pool, 'hook-release'), '')
     const done = await first
     expect(done.status, `stdout:\n${done.stdout}\nstderr:\n${done.stderr}`).toBe(0)
     expect(done.stdout).toContain('[3/3] slot slot-0 ready (new)')
@@ -292,8 +310,8 @@ export default [{
     await finish(c, 'old', ['-m', 'feat: old'])
 
     // 2) 主线前进到 1.0.0 —— 槽停在 finish 时的 base，磁盘上还是 0.1.0
-    writeFile(path.join(c.proj, 'package.json'), '{ "name": "demo", "version": "1.0.0" }\n')
-    await commitAll(c.proj, 'bump main')
+    writeFile(path.join(c.repo, 'package.json'), '{ "name": "demo", "version": "1.0.0" }\n')
+    await commitAll(c.repo, 'bump main')
 
     // 3) 复用槽：钩子在 git 改写之前跑，必须读到旧的
     const result = await start(c, 'new')
@@ -322,7 +340,7 @@ export default [{
     // The realistic way a slot's state disappears: `.state/` is deleted or restored from an old
     // backup. The worktree is still on feature/alpha with uncommitted work in it, and nothing may
     // reuse, park or delete it on the strength of a missing file.
-    rmSync(path.join(c.root, '.state', 'slot-0'), { recursive: true, force: true })
+    rmSync(path.join(c.pool, '.state', 'slot-0'), { recursive: true, force: true })
 
     const result = await start(c, 'beta')
     expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0)
