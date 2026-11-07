@@ -86,6 +86,11 @@ in the main worktree: it deletes everything in `.ratoon/` except the slots thems
 toolbox, the notes and the install fingerprints — and `start` then runs with no hooks. `ratoon init`
 rebuilds the toolbox, but the notes are gone.
 
+The `.gitignore` rule keeps the pool out of git and out of nothing else. Anything that walks the
+repository — a test runner, `tsc`, an IDE index, a plain `grep -r` — sees every busy slot as an
+ordinary directory holding a full copy of the project, possibly on another branch. Scope those
+tools off `.ratoon/`; this repository does it with one `exclude` entry in `vitest.config.ts`.
+
 The hooks are optional. Delete `.ratoon/hooks.ts` and the repository is a plain worktree pool:
 allocate, branch, clean, squash, rebase, merge, park.
 

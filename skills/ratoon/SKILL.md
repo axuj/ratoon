@@ -66,6 +66,11 @@ starting point and a rebase target, never a merge target.
 `.ratoon/*` rule in `.gitignore`. Never `git add` the pool or the state on your own; the config files
 stay local too unless the team whitelisted them.
 
+That rule is for git alone. Every busy slot is a full copy of the project inside the repository, so
+anything that walks the tree — the project's test runner, `tsc`, your own `grep` — finds the slots
+as ordinary directories, possibly on another branch. Keep their scope off `.ratoon/`, and never read
+a file there as the project's current state.
+
 A team can share individual files by whitelisting them. The rule has to be `.ratoon/*` for that to
 work: with plain `.ratoon/`, git never descends into the directory and every `!` exception below it
 is ignored.
