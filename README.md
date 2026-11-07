@@ -11,11 +11,12 @@ The name is the agronomic one: after a harvest the *ratoon* (regrowth) springs f
 system, which is exactly what a slot does.
 
 ```
-ratoon start <task>              claim a slot, create the branch, run the hooks
-ratoon finish <task> -m <title>  squash the task into one commit, park the slot
-ratoon abandon <task>            throw the work away, keep the slot
-ratoon list                      show the pool
-ratoon init                      optional: generate the hook toolbox
+ratoon start <task>               claim a slot, create the branch, run the hooks
+ratoon start <task> --base <ref>  start from another task's commit, not the base branch
+ratoon finish <task> -m <title>   squash the task into one commit, park the slot
+ratoon abandon <task>             throw the work away, keep the slot
+ratoon list                       show the pool
+ratoon init                       optional: generate the hook toolbox
 ```
 
 ## Why
@@ -39,10 +40,10 @@ ratoon init                      optional: generate the hook toolbox
 ## Quick start
 
 ```bash
-npm i -g ratoon                              # Node >= 26
-npx skills add axuj/ratoon --skill ratoon   # give your agent the workflow rules
+npm i -g ratoon                            # Node >= 26
+npx skills add axuj/ratoon --skill ratoon  # give your agent the workflow rules
 cd your-repo
-ratoon start add-banner                      # prints the slot path — edit, commit and test there
+ratoon start add-banner                    # prints the slot path — edit, commit and test there
 ```
 
 `start` works in any git repository with no setup. The first run adds `.ratoon/*` to `.gitignore`
@@ -111,12 +112,37 @@ own messages are discarded.
 Parking leaves the slot detached at `master`: the branch is dropped, the worktree and its
 `node_modules` stay.
 
-## Rules and reference
+## Stacking one task on another
 
-The workflow rules for agents live in the skill, which is the single source for them:
+`--base` starts a task at another task's commit instead of the base branch:
 
 ```bash
-npx skills add axuj/ratoon --skill ratoon
+ratoon start review --base feature/add-banner   # review starts where add-banner got to
+```
+
+It is a copy of that work in a new slot, not a link — the new branch carries the other task's
+drafts, so landing it lands both. `--base` needs a committed checkpoint (uncommitted work in the
+other slot is invisible), and it is a starting point and a rebase target, never a merge target:
+`finish` still lands on the branch checked out in the main worktree. Which of the two to finish
+first depends on whether both should land; the skill's *Building on another task* has the
+decision.
+
+## The skill
+
+The workflow rules for agents live in the skill — the single source for them, so this README says
+what ratoon does and the skill says how to work with it:
+
+```bash
+npx skills add axuj/ratoon --skill ratoon           # from GitHub, default branch
+npx skills add axuj/ratoon@v0.2.0 --skill ratoon    # pinned to a release
+```
+
+The same `SKILL.md` ships in the npm tarball, so a project that already depends on ratoon can link
+it from `node_modules` instead of fetching from GitHub:
+
+```bash
+npm i -D ratoon
+npx skills experimental_sync -y                     # links node_modules/ratoon/skills/ratoon
 ```
 
 `ratoon --help` and `ratoon <command> --help` are the reference for flags. The hook contract is
