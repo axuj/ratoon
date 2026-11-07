@@ -39,16 +39,35 @@ ratoon init                       optional: generate the hook toolbox
 
 ## Quick start
 
+**For an agent** — the workflow rules live in the skill, not in `--help`:
+
+```bash
+npx skills add axuj/ratoon --skill ratoon           # default branch
+npx skills add axuj/ratoon@v0.2.1 --skill ratoon    # same version as your CLI
+```
+
+Already depend on ratoon in the project? The same `SKILL.md` ships in the npm tarball, so
+`npx skills experimental_sync -y` links it from `node_modules` instead of fetching from GitHub.
+
+**Everyone** — the CLI, then a first task:
+
 ```bash
 npm i -g ratoon                            # Node >= 26
-npx skills add axuj/ratoon --skill ratoon  # give your agent the workflow rules
 cd your-repo
 ratoon start add-banner                    # prints the slot path — edit, commit and test there
 ```
 
 `start` works in any git repository with no setup. The first run adds `.ratoon/*` to `.gitignore`
-— commit that line. `ratoon init` is optional: it generates the hook toolbox (`.ratoon/hooks.ts`,
-`types.ts` and starter plugins) for projects that want lifecycle plugins.
+— commit that line.
+
+`ratoon init` is optional: it writes the hook toolbox (`.ratoon/hooks.ts`, `types.ts` and the
+starter plugins). Two starters are the reason to run it: `taskNotes()` — on by default — writes a
+`TASK.md` handoff sheet for each task, and `npmInstall()` — opt in by adding it to the array —
+installs dependencies in a cold slot and skips a warm one. `types.ts` is the hook contract;
+`ratoon <command> --help` is the reference for flags.
+
+The Node >= 26 floor comes from those hooks: they are `.ts` files the CLI imports directly, and Node
+runs them by stripping the types as it loads — no build step, no `ts-node`, no loader to configure.
 
 `.ratoon/` is local state, not project content. `start` writes the single rule `.ratoon/*`, which
 also leaves room for exceptions: add `!.ratoon/hooks.ts` (or `!.ratoon/plugins/`) when a team should
@@ -131,28 +150,6 @@ other slot is invisible), and it is a starting point and a rebase target, never 
 `finish` still lands on the branch checked out in the main worktree. Which of the two to finish
 first depends on whether both should land; the skill's *Building on another task* has the
 decision.
-
-## The skill
-
-The workflow rules for agents live in the skill — the single source for them, so this README says
-what ratoon does and the skill says how to work with it:
-
-```bash
-npx skills add axuj/ratoon --skill ratoon           # from GitHub, default branch
-npx skills add axuj/ratoon@v0.2.0 --skill ratoon    # pinned to a release
-```
-
-The same `SKILL.md` ships in the npm tarball, so a project that already depends on ratoon can link
-it from `node_modules` instead of fetching from GitHub:
-
-```bash
-npm i -D ratoon
-npx skills experimental_sync -y                     # links node_modules/ratoon/skills/ratoon
-```
-
-`ratoon --help` and `ratoon <command> --help` are the reference for flags. The hook contract is
-`.ratoon/types.ts` and the starter plugins are `.ratoon/plugins/*.ts` — `init` copies both into
-your project, so the reference sits next to the code you edit.
 
 ## Development
 
