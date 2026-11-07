@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Must precede setup-nub: the action resolves the Node pin and the lockfile from the checkout.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Drop-in for actions/setup-node: installs the nub CLI, provisions Node, caches the store.
       # The exact version lives in `.node-version`; `engines.node` is only a range (`>=26`).
