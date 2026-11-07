@@ -116,7 +116,17 @@ describe('ratoon init', () => {
     await ratoon(['init'], { cwd: repo })
     const third = await ratoon(['init'], { cwd: repo })
     expect(third.status).toBe(0)
-    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\n.ratoon/*\n')
+    // its own paragraph: straight under `node_modules/` the rule would read as part of that group
+    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\n\n.ratoon/*\n')
+  })
+
+  it('closes a .gitignore whose last line has no newline', async () => {
+    const { repo } = freshRepo()
+    writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\ndist/')
+
+    const result = await ratoon(['init'], { cwd: repo })
+    expect(result.status).toBe(0)
+    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n\n.ratoon/*\n')
   })
 
   it('is a no-op on the second run', async () => {

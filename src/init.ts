@@ -68,6 +68,11 @@ export function repoRootOf(start: string): string {
  * `start` calls this on every run, so a plain `git init` is already enough to begin; `init` calls
  * it too, for people who start there. Idempotent: a second call never appends a duplicate. An older
  * `.ratoon/worktrees/` rule counts as installed, so existing repositories are left as they are.
+ *
+ * The rule gets a paragraph of its own. Appended straight onto the last entry it reads as a member
+ * of whatever group ends the file (`# scratch`, `# editors`, …), and a line the project never wrote
+ * is the first one a reader deletes by mistake. It is still one rule — only the blank line above it
+ * is new.
  */
 export const IGNORE_RULE = '.ratoon/*'
 
@@ -82,13 +87,26 @@ export function ensureRatoonIgnored(repo: string): 'added' | 'created' | 'presen
   if (installed)
     return 'present'
 
-  const separator = text !== '' && !text.endsWith('\n')
-    ? '\n'
-    : ''
-  writeFileSync(file, `${text}${separator}${IGNORE_RULE}\n`)
+  // `text` is kept byte for byte: the gap only closes a last line that lacks its newline and adds
+  // the blank one. A file that already ends in a blank line needs neither.
+  const eol = text.includes('\r\n')
+    ? '\r\n'
+    : '\n'
+  writeFileSync(file, `${text}${gapAbove(text, eol)}${IGNORE_RULE}${eol}`)
   return text === ''
     ? 'created'
     : 'added'
+}
+
+/** What goes between the project's last line and the rule: close it, then blank one line. */
+function gapAbove(text: string, eol: string): string {
+  if (text === '')
+    return ''
+  if (!text.endsWith(eol))
+    return eol + eol
+  if (text.endsWith(eol + eol))
+    return ''
+  return eol
 }
 
 /**

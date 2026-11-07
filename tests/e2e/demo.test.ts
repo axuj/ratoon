@@ -72,7 +72,7 @@ describe('ratoon demo', () => {
       expect(existsSync(path.join(repo, rel)), rel).toBe(true)
     }
     expect(readFileSync(path.join(repo, 'index.js'), 'utf8')).toContain('from \'tiny\'')
-    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n.ratoon/*\n')
+    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n\n.ratoon/*\n')
     expect(gitOut(repo, 'status', '--porcelain', '-uall')).not.toContain('.ratoon/worktrees')
   })
 
