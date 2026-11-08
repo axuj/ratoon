@@ -3,7 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { poolForRepo } from './layout.ts'
-import { HOOKS } from './templates.ts'
+import { HOOKS, PACKAGE_JSON, TSCONFIG } from './templates.ts'
 
 const PLUGIN_FILES = [
   'npm-install.ts',
@@ -122,9 +122,10 @@ export function ensureWritable(repo: string): void {
 }
 
 /**
- * Write the executable configuration into the repository: `hooks.ts`, the types and the starter
- * plugins, all under `.ratoon/`. Rules for agents live in the ratoon skill and are never copied
- * into a repository, where they would freeze at the version that ran `init`.
+ * Write the executable configuration into the repository: `hooks.ts`, the types, the starter
+ * plugins and an editor setup of their own (`tsconfig.json` plus a private `package.json`), all
+ * under `.ratoon/`. Rules for agents live in the ratoon skill and are never copied into a
+ * repository, where they would freeze at the version that ran `init`.
  *
  * Only missing files are written. An existing one is never overwritten, so editing a starter
  * plugin, a type, or `hooks.ts` is safe: the next `init` leaves it byte for byte. The way to take
@@ -149,6 +150,14 @@ export function writeScaffolding(dir: string): ScaffoldResult {
       path.join('.ratoon', 'plugins', file),
       ownSource(`plugins/${file}`),
     ]),
+    [
+      path.join('.ratoon', 'package.json'),
+      PACKAGE_JSON,
+    ],
+    [
+      path.join('.ratoon', 'tsconfig.json'),
+      TSCONFIG,
+    ],
   ]
 
   const result: ScaffoldResult = { wrote: [], kept: [] }
@@ -166,6 +175,10 @@ export function writeScaffolding(dir: string): ScaffoldResult {
   return result
 }
 
+/**
+ * `init` writes files and nothing else: no subprocess, no network, no package manager. Installing
+ * `@types/node` is the project's call and only affects an editor — the hooks run either way.
+ */
 export async function runInit(): Promise<void> {
   const cwd = process.cwd()
   // first: a stray `init` in ratoon's own checkout must never write into it
@@ -201,5 +214,8 @@ Next steps:
   1. edit .ratoon/hooks.ts — starter plugins live in .ratoon/plugins/ (taskNotes is on; npmInstall is opt-in)
   2. ratoon start <task>            # pool: ${pool}
   3. npx skills add axuj/ratoon --skill ratoon   # give your agent the workflow rules
+
+@types/node is not installed: an editor shows TS2688 here, \`ratoon start\` does not care.
+For completions while writing plugins: \`cd .ratoon && npm i\`.
 `)
 }

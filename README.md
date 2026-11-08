@@ -66,6 +66,14 @@ starter plugins). Two starters are the reason to run it: `taskNotes()` — on by
 installs dependencies in a cold slot and skips a warm one. `types.ts` is the hook contract;
 `ratoon <command> --help` is the reference for flags.
 
+It also gives those files an editor project of their own — `.ratoon/tsconfig.json` and a private
+`.ratoon/package.json` — because a project tsconfig does not collect dot-directories, so an editor
+would otherwise open the hooks in an inferred project without `node:fs`. The config names
+`@types/node`; `init` installs nothing, so the editor reports TS2688 there until you run
+`cd .ratoon && npm i`. Nothing at runtime needs it — Node only strips the types — so install when
+you start writing plugins and want completions. That manifest is for editor types alone; whatever
+a hook imports at runtime belongs in the project's dependencies.
+
 The Node >= 26 floor comes from those hooks: they are `.ts` files the CLI imports directly, and Node
 runs them by stripping the types as it loads — no build step, no `ts-node`, no loader to configure.
 
@@ -88,6 +96,8 @@ your-repo/
 │  ├─ hooks.ts          # the one file with all project-specific logic
 │  ├─ plugins/          # starter plugins — taskNotes on, the rest opt-in
 │  ├─ types.ts          # Plugin / LifecycleHook / HookContext
+│  ├─ tsconfig.json     # the toolbox as its own editor project
+│  ├─ package.json      # private manifest, for @types/node if you install it
 │  └─ worktrees/        # the pool — the .ratoon/* rule keeps it out of git
 │     ├─ slot-0/ …      # worktrees
 │     └─ .state/<slot>/ # TASK.md handoff sheet, claims, install fingerprints

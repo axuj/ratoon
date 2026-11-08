@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeDir, gitOut, ratoon, readJson } from '../helpers/repo.ts'
 
@@ -18,6 +18,8 @@ const SCAFFOLD = [
   '.ratoon/plugins/npm-install.ts',
   '.ratoon/plugins/shared.ts',
   '.ratoon/plugins/task-notes.ts',
+  '.ratoon/package.json',
+  '.ratoon/tsconfig.json',
 ]
 
 const created: string[] = []
@@ -63,7 +65,13 @@ describe('ratoon init', () => {
     expect(existsSync(path.join(repo, 'AGENTS.md'))).toBe(false)
     expect(existsSync(path.join(repo, '.ratoon', 'AGENTS.md'))).toBe(false)
     expect(existsSync(path.join(repo, '.ratoon', 'docs'))).toBe(false)
-    expect(readdirSync(path.join(repo, '.ratoon')).sort()).toEqual(['hooks.ts', 'plugins', 'types.ts'])
+    expect(readdirSync(path.join(repo, '.ratoon')).sort()).toEqual([
+      'hooks.ts',
+      'package.json',
+      'plugins',
+      'tsconfig.json',
+      'types.ts',
+    ])
 
     // `init` declares the pool but does not create it — `start` does, on demand. No sibling pool.
     expect(existsSync(path.join(repo, '.ratoon', 'worktrees'))).toBe(false)
@@ -81,28 +89,17 @@ describe('ratoon init', () => {
     const { repo } = freshRepo()
     await ratoon(['init'], { cwd: repo })
 
-    // no package resolution involved: the project gets @types/node from its own install
-    mkdirSync(path.join(repo, 'node_modules'), { recursive: true })
-    symlinkSync(TYPES, path.join(repo, 'node_modules', '@types'), 'junction')
-    const config = path.join(repo, 'tsconfig.ratoon.json')
-    writeFileSync(config, JSON.stringify({
-      compilerOptions: {
-        target: 'ES2023',
-        lib: ['ES2023'],
-        module: 'ESNext',
-        moduleResolution: 'bundler',
-        allowImportingTsExtensions: true,
-        noEmit: true,
-        strict: true,
-        skipLibCheck: true,
-        verbatimModuleSyntax: true,
-        types: ['node'],
-      },
-      include: ['.ratoon/**/*.ts'],
-    }))
-
-    const typecheck = spawnSync(process.execPath, [TSC, '--noEmit', '-p', config], {
-      cwd: repo,
+    // the sources ratoon copied have to compile against the types it names — supplied here from
+    // ratoon's own install, so the check stays offline and leaves the fixture untouched
+    const typecheck = spawnSync(process.execPath, [
+      TSC,
+      '--noEmit',
+      '--types',
+      'node',
+      '--typeRoots',
+      TYPES,
+    ], {
+      cwd: path.join(repo, '.ratoon'),
       encoding: 'utf8',
     })
     expect(typecheck.status, typecheck.stdout + typecheck.stderr).toBe(0)
@@ -207,5 +204,31 @@ describe('ratoon init', () => {
 
     // the guard runs before any write, so ratoon's own manifest must be untouched
     expect(readJson(path.join(RATOON_ROOT, 'package.json'))).toEqual(before)
+  })
+
+  it('installs nothing, and the hooks run without any types', async () => {
+    const { repo } = freshRepo()
+    const result = await ratoon(['init'], { cwd: repo })
+    expect(result.status).toBe(0)
+
+    // `init` writes files: no package manager, no network, no node_modules
+    expect(existsSync(path.join(repo, '.ratoon', 'node_modules'))).toBe(false)
+    expect(existsSync(path.join(repo, '.ratoon', 'package-lock.json'))).toBe(false)
+
+    // types are the editor's business: Node only strips them, so the hooks load as they are
+    const hooks = pathToFileURL(path.join(repo, '.ratoon', 'hooks.ts')).href
+    const loaded = spawnSync(process.execPath, [
+      '-e',
+      `import(${JSON.stringify(hooks)}).then(m => console.log('plugins', m.default.length))`,
+    ], { cwd: repo, encoding: 'utf8' })
+    expect(loaded.status, loaded.stdout + loaded.stderr).toBe(0)
+    expect(loaded.stdout.trim()).toBe('plugins 1')
+
+    // and the editor says what is missing once, instead of asking about every `node:fs` line
+    const typecheck = spawnSync(process.execPath, [TSC, '--noEmit'], {
+      cwd: path.join(repo, '.ratoon'),
+      encoding: 'utf8',
+    })
+    expect(typecheck.stdout).toContain('TS2688')
   })
 })
