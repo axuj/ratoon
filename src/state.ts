@@ -178,9 +178,13 @@ function realKey(file: string): string {
   }
 }
 
-/** Branch per slot name, straight from git — one call for the whole pool. */
-async function worktreeBranches(root: string, mainDir: string): Promise<Map<string, { path: string, branch: string }>> {
-  const found = new Map<string, { path: string, branch: string }>()
+interface WorktreeEntry {
+  path: string
+  branch: string
+}
+
+/** Every worktree git still has a binding for — one call for the whole repository. */
+async function listWorktrees(mainDir: string): Promise<WorktreeEntry[]> {
   const result = await exec('git', [
     '-C',
     mainDir,
@@ -189,16 +193,13 @@ async function worktreeBranches(root: string, mainDir: string): Promise<Map<stri
     '--porcelain',
   ])
   if (result.status !== 0)
-    return found
+    return []
 
-  const rootKey = realKey(root)
-  let current: { path: string, branch: string } | undefined
+  const entries: WorktreeEntry[] = []
+  let current: WorktreeEntry | undefined
   const flush = (): void => {
-    if (current) {
-      const dir = path.basename(current.path)
-      if (/^slot-\d+$/.test(dir) && realKey(path.dirname(current.path)) === rootKey)
-        found.set(dir, current)
-    }
+    if (current)
+      entries.push(current)
     current = undefined
   }
   for (const raw of result.stdout.split('\n')) {
@@ -218,7 +219,36 @@ async function worktreeBranches(root: string, mainDir: string): Promise<Map<stri
     }
   }
   flush()
+  return entries
+}
+
+/** Branch per slot name, straight from git — one call for the whole pool. */
+async function worktreeBranches(root: string, mainDir: string): Promise<Map<string, WorktreeEntry>> {
+  const found = new Map<string, WorktreeEntry>()
+  const rootKey = realKey(root)
+  for (const entry of await listWorktrees(mainDir)) {
+    const dir = path.basename(entry.path)
+    if (/^slot-\d+$/.test(dir) && realKey(path.dirname(entry.path)) === rootKey)
+      found.set(dir, entry)
+  }
   return found
+}
+
+/**
+ * Busy slot worktrees git knows about but that sit outside this pool. This is what a changed
+ * `ratoon.poolPath` looks like from git's side; creating a second pool would strand the task
+ * checked out in them.
+ *
+ * A parked slot is detached and holds no task, so leaving it behind costs nothing — and refusing
+ * over it would make a pool move impossible in a repository where every task is already done.
+ */
+export async function foreignSlotPaths(root: string, mainDir: string): Promise<string[]> {
+  const rootKey = realKey(root)
+  return (await listWorktrees(mainDir))
+    .filter(entry => /^slot-\d+$/.test(path.basename(entry.path)))
+    .filter(entry => realKey(path.dirname(entry.path)) !== rootKey)
+    .filter(entry => entry.branch !== '')
+    .map(entry => entry.path)
 }
 
 function bySlotName(a: string, b: string): number {

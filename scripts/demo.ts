@@ -3,7 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { ensureRatoonIgnored, refuseSelf, writeScaffolding } from '../src/init.ts'
-import { poolForRepo } from '../src/layout.ts'
+import { layoutOf } from '../src/layout.ts'
 import { exec, run } from '../src/shell.ts'
 
 /**
@@ -65,7 +65,7 @@ async function demo(): Promise<void> {
   await run('git', ['-C', dir, 'commit', '-m', 'ratoon'])
 
   // `start` creates the pool on demand, exactly as it does after `ratoon init`
-  const pool = poolForRepo(dir)
+  const { root: pool } = await layoutOf({ cwd: dir })
 
   console.log(`
 demo ready:

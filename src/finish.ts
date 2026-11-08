@@ -125,7 +125,7 @@ async function commitsAhead(mainDir: string, base: string, branch: string): Prom
 }
 
 export async function runFinish(opts: RatoonOptions, task: string, title: string): Promise<void> {
-  const layout = layoutOf()
+  const layout = await layoutOf()
   const base = await resolveBaseRef(opts, layout.mainDir)
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout

@@ -54,7 +54,7 @@ async function discardSummary(mainDir: string, base: string, branch: string): Pr
 }
 
 export async function runAbandon(opts: RatoonOptions, task: string): Promise<void> {
-  const layout = layoutOf()
+  const layout = await layoutOf()
   const base = await resolveBaseRef(opts, layout.mainDir)
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout

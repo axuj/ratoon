@@ -128,12 +128,16 @@ export function disposeDir(dir: string): void {
   catch {}
 }
 
-export function ratoon(args: string[], opts: { cwd?: string } = {}): Promise<CliResult> {
+export function ratoon(args: string[], opts: { cwd?: string, env?: Record<string, string> } = {}): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: opts.cwd ?? process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NO_COLOR: '1' },
+      env: {
+        ...process.env,
+        NO_COLOR: '1',
+        ...opts.env,
+      },
     })
     let stdout = ''
     let stderr = ''

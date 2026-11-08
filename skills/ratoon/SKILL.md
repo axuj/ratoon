@@ -5,13 +5,16 @@ description: Work on several tasks at once in parallel git worktrees, or land a 
 
 # ratoon
 
-ratoon gives each task a slot — a worktree in the gitignored `.ratoon/worktrees/` pool — and lands
-it as one commit. Install the CLI with `npm i -g ratoon` (Node >= 26). `ratoon start` works in any
-git repository with no setup: the first run adds `.ratoon/*` to `.gitignore` (commit that line) and
-creates the pool. `ratoon init` is optional — it only generates the hook toolbox
-(`.ratoon/hooks.ts`, `types.ts`, starter plugins), so run it when the project wants lifecycle
-plugins such as task notes. Every command works from the repository, any subdirectory, or inside a
-slot — no flags needed; the pool is always `<repo>/.ratoon/worktrees/`.
+ratoon gives each task a slot — a worktree in a gitignored pool — and lands it as one commit.
+Install the CLI with `npm i -g ratoon` (Node >= 26). `ratoon start` works in any git repository
+with no setup: the first run creates the pool and, when the pool lives in the project, adds
+`.ratoon/*` to `.gitignore` (commit that line). `ratoon init` is optional — it only generates the
+hook toolbox (`.ratoon/hooks.ts`, `types.ts`, starter plugins), so run it when the project wants
+lifecycle plugins such as task notes. Every command works from the repository, any subdirectory, or
+inside a slot — no flags needed. The default pool is `<repo>/.ratoon/worktrees/`, but git config
+`ratoon.poolPath` can name a base directory outside the project, where each repository mirrors its
+own path (`D:/code/app` under `D:/worktree` becomes `D:/worktree/d/code/app`). Read the actual path
+from `ratoon list` or from `start` output instead of assuming it.
 
 ## Workflow
 
@@ -48,8 +51,8 @@ starting point and a rebase target, never a merge target.
 - Commit in the slot, never in the repository's own working tree.
 - Never leave dirt: `finish` refuses a dirty tree and the next `start` runs `git clean -fd`.
   Untracked files count unless gitignored.
-- Anything that is not repo content — notes, logs, locks — belongs in
-  `.ratoon/worktrees/.state/<slot>/`, never in a worktree. Do not run `git clean -fdx` in the main
+- Anything that is not repo content — notes, logs, locks — belongs in the pool's
+  `.state/<slot>/`, never in a worktree. Do not run `git clean -fdx` in the main
   worktree: it wipes `.ratoon/` — the hook toolbox, the notes and the install fingerprints — while
   the slots themselves survive, so `start` keeps working with no hooks until `ratoon init` runs
   again.
@@ -66,10 +69,12 @@ starting point and a rebase target, never a merge target.
 `.ratoon/*` rule in `.gitignore`. Never `git add` the pool or the state on your own; the config files
 stay local too unless the team whitelisted them.
 
-That rule is for git alone. Every busy slot is a full copy of the project inside the repository, so
-anything that walks the tree — the project's test runner, `tsc`, your own `grep` — finds the slots
-as ordinary directories, possibly on another branch. Keep their scope off `.ratoon/`, and never read
-a file there as the project's current state.
+That rule is for git alone. A busy slot in the default pool is a full copy of the project inside the
+repository, so anything that walks the tree — the project's test runner, `tsc`, your own `grep` —
+finds the slots as ordinary directories, possibly on another branch. Keep their scope off `.ratoon/`,
+and never read a file there as the project's current state. A repository can keep the pool out of the
+tree with `git config ratoon.poolPath <base>`; the pool then lands under its own mirrored path inside
+that base, and `ratoon list` shows where it went.
 
 A team can share individual files by whitelisting them. The rule has to be `.ratoon/*` for that to
 work: with plain `.ratoon/`, git never descends into the directory and every `!` exception below it
@@ -88,7 +93,8 @@ of the ratoon version that ran `init`; they can be shared too, but expect a diff
 ## The handoff sheet (`TASK.md`)
 
 With `ratoon init` in place, the starter `taskNotes()` plugin writes
-`.ratoon/worktrees/.state/<slot>/TASK.md` at `start`. It is a plain file the user can open without
+`<pool>/.state/<slot>/TASK.md` at `start` — `start` prints the full path, so use that instead of
+assuming the default pool location. It is a plain file the user can open without
 an agent session, and the one surface a subagent with an isolated context can still reach. It holds
 Plan (checkboxes), Findings and Left open. The next task in that slot overwrites it, so it describes
 the current task only. Without the plugin there is no sheet — say what changed instead of pointing

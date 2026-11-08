@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { poolForRepo } from './layout.ts'
+import { layoutOf } from './layout.ts'
 import { HOOKS, PACKAGE_JSON, TSCONFIG } from './templates.ts'
 
 const PLUGIN_FILES = [
@@ -191,7 +191,7 @@ export async function runInit(): Promise<void> {
 
   // `start` creates the pool on demand. An empty ignored directory is not an installation marker:
   // `git clean -fdx` removes it, and `resolveLayout` reads committed traces instead.
-  const pool = poolForRepo(repo)
+  const { root: pool } = await layoutOf({ cwd })
 
   const summary = [`\ninstalling ratoon into ${repo}`]
   if (wrote.length > 0)

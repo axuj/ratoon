@@ -5,9 +5,9 @@ import path from 'node:path'
 import { branchExists, currentBranch, deleteBranchIfUnchanged, park, pruneWorktrees } from './git.ts'
 import { describeHooks, loadHooks } from './hooks.ts'
 import { ensureRatoonIgnored, IGNORE_RULE } from './init.ts'
-import { layoutOf, resolveBaseRef } from './layout.ts'
+import { layoutOf, POOL_CONFIG_KEY, poolIsIgnoredByRule, resolveBaseRef } from './layout.ts'
 import { exec, rmrf, run } from './shell.ts'
-import { claim, clearTask, isFree, release, scanPool } from './state.ts'
+import { claim, clearTask, foreignSlotPaths, isFree, release, scanPool } from './state.ts'
 
 function message(err: unknown): string {
   return err instanceof Error
@@ -16,7 +16,7 @@ function message(err: unknown): string {
 }
 
 export async function runStart(opts: RatoonOptions, task: string): Promise<void> {
-  const layout = layoutOf()
+  const layout = await layoutOf()
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout
 
@@ -24,11 +24,25 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
   // before the ignore line is written, so the warning reflects the user's own dirt, not our edit
   await warnUncommittedMain(mainDir, base)
 
-  // Slots need exactly one thing from the repository: git must ignore the pool. Write that line on
-  // the first start, so a plain `git init` is enough to begin — `ratoon init` is only for plugins.
-  const ignored = ensureRatoonIgnored(mainDir)
-  if (ignored !== 'present')
-    console.log(`\n  .gitignore  ${ignored} ${IGNORE_RULE} — commit it so the pool stays out of git\n`)
+  // A changed ratoon.poolPath leaves git's bindings in the old pool while every command looks at
+  // the new one. Refuse before creating anything, while the old slots are still untouched.
+  const foreign = await foreignSlotPaths(root, mainDir)
+  if (foreign.length > 0) {
+    throw new Error(
+      `git still has ratoon slots outside ${root}:\n  ${foreign.join('\n  ')}\n`
+      + `finish or abandon those tasks first, or restore ${POOL_CONFIG_KEY} to their pool.`,
+    )
+  }
+
+  // Slots under <repo>/.ratoon/ are covered by the one ignore rule; a pool outside the repository
+  // leaves nothing of ratoon's in it, so there is no line to add. `init` writes the rule when it
+  // puts hooks/types under .ratoon/. A pool inside the repository but outside .ratoon/ is refused
+  // where the path is resolved, so those two are the only cases left here.
+  if (poolIsIgnoredByRule(root, mainDir)) {
+    const ignored = ensureRatoonIgnored(mainDir)
+    if (ignored !== 'present')
+      console.log(`\n  .gitignore  ${ignored} ${IGNORE_RULE} — commit it so the pool stays out of git\n`)
+  }
   // the pool itself is created on demand: an empty ignored directory is not an installation marker
   mkdirSync(root, { recursive: true })
 
