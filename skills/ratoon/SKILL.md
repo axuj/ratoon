@@ -1,137 +1,59 @@
 ---
 name: ratoon
-description: Work on several tasks at once in parallel git worktrees, or land a task as exactly one commit. Use when a second task starts while another is in progress, when several agents or subagents work at once, when a task must be isolated from the main working tree, when a branch's draft commits need squashing into one, or when the work must land on a branch other than the one checked out. Commands are ratoon init, start, list, finish, abandon.
+description: Work on several tasks at once in parallel git worktrees, or land a task as exactly one commit. Use when a second task starts while another is in progress, when several agents or subagents work at once, when a task must be isolated from the main working tree, or when a branch's draft commits need squashing into one, or when the work must land on a branch other than the one checked out. Start a slot before editing; commit only in that slot; never run finish without explicit approval. Commands are ratoon init, start, list, finish, abandon.
 ---
 
 # ratoon
 
-ratoon gives each task a slot — a worktree in a gitignored pool — and lands it as one commit.
-Install the CLI with `npm i -g ratoon` (Node >= 26). `ratoon start` works in any git repository
-with no setup: the first run creates the pool and, when the pool lives in the project, adds
-`.ratoon/*` to `.gitignore` (commit that line). `ratoon init` is optional — it only generates the
-hook toolbox (`.ratoon/hooks.ts`, `types.ts`, starter plugins), so run it when the project wants
-lifecycle plugins such as task notes. Every command works from the repository, any subdirectory, or
-inside a slot — no flags needed. The default pool is `<repo>/.ratoon/worktrees/`, but git config
-`ratoon.poolPath` can name a base directory outside the project, where each repository mirrors its
-own path (`D:/code/app` under `D:/worktree` becomes `D:/worktree/d/code/app`). Read the actual path
-from `ratoon list` or from `start` output instead of assuming it.
+## Before anything
+
+1. `ratoon start <task>` first. Every edit, commit and test happens inside that slot — never in the
+   repository's own working tree.
+2. Draft commits are notes for the user, not a changelog: short, in the user's language, as often
+   as you like. `wip`, `try this`, `ok that was dumb`, `拆了下 skill，门控挪前面了`,
+   `框和警告删了，进度交给 commit`. Not `wip: add plugin command support`. They are squashed away
+   and never reach the base.
+3. Never run `finish` (or delegate it) until the user explicitly says to. Show the changes first.
 
 ## Workflow
 
 1. `ratoon start <task>` claims a free slot, creates `feature/<task>` from the base commit, and runs
    the hooks. It prints the slot path: edit, commit and test there.
-2. Commit inside the slot as often as you like. Those messages are drafts and never reach the base.
-3. Show the user what changed and **wait for explicit approval** before landing. When `taskNotes()`
-   is enabled, the handoff sheet is what you show.
+2. Commit in the slot as often as you like, with the throwaway messages above.
+3. Show the user what changed and **wait for explicit approval**. When `taskNotes()` is enabled,
+   show the handoff sheet too, and put anything under `## Left open` in front of the user before
+   asking.
 4. `ratoon finish <task> -m "<message>"` squashes, rebases onto the target, fast-forwards, and parks
-   the slot. The `-m` text is the landing commit, verbatim. The target is the branch checked out in
-   the main worktree; `--into <branch>` lands elsewhere and leaves that worktree untouched.
+   the slot. The `-m` text is the landing commit, verbatim — this one is written for people. The
+   target is the branch checked out in the main worktree; `--into <branch>` lands elsewhere and
+   leaves that worktree untouched.
 5. `ratoon abandon <task>` throws the work away and parks the slot.
 
 `ratoon list` shows the pool. `ratoon <command> --help` is the reference for flags.
 
-## Building on another task
+## The tool in one paragraph
 
-`start B --base feature/A` checks out A's current commit as B's starting point — a copy of A's
-work in a new slot. B's branch contains A's drafts, so `finish B` lands the whole tree, not just
-B's own changes. `--base` needs a committed checkpoint; uncommitted work in A is not visible.
+ratoon gives each task a slot — a worktree in a gitignored pool — and lands it as one commit.
+Install with `npm i -g ratoon` (Node >= 26). `ratoon start` works in any git repository with no
+setup; `ratoon init` is optional and only writes the hook toolbox (`.ratoon/hooks.ts`, `types.ts`,
+starter plugins). Every command works from the repository, any subdirectory or inside a slot. The
+default pool is `<repo>/.ratoon/worktrees/`; git config `ratoon.poolPath` can move it. Read the
+actual path from `ratoon list` or from `start` output instead of assuming it.
 
-- Only B should survive → finish B, then `abandon A`. The landing commit contains A + B.
-- Both should land as separate commits → **finish A first**; B rebases onto the new main
-  automatically. Landing B first puts A's work under B's commit and leaves nothing for A to land.
-- Two independent directions → start both from the main branch, do not base one on the other.
+## Rules that are easy to miss
 
-## Landing on another branch
-
-`finish --into <branch>` lands the work on a branch the main worktree does *not* have checked out —
-the shape of a long-lived second line, such as `v2` growing next to a shipping `main`. The task is
-squashed, rebased onto that branch, and the branch is fast-forwarded; the main worktree keeps its
-branch, its files and its uncommitted edits, so a task can land on either line without stashing or
-switching.
-
-- The target only moves forward. If something landed on it first, `finish` pauses with exit 2 —
-  nothing changed, run the same command again.
-- The target must not be checked out in another worktree; git will not move it. `finish` refuses
-  before squashing anything and names that worktree — exit 1, and re-running changes nothing until
-  it is free.
-- `--into` takes a local branch. A tag or `origin/v2` is refused rather than turned into a branch of
-  that name.
-
-## Rules
-
-- **Land only when the user asks.** Never run `finish` on your own initiative, and never delegate
-  it to a subagent. Leave the task checked out in its slot until approval.
-- One task per slot. The task name *is* the branch, so two agents cannot use the same task name.
-- Commit in the slot, never in the repository's own working tree.
+- One task per slot. The task name *is* the branch, so two agents cannot use the same name.
 - Never leave dirt: `finish` refuses a dirty tree and the next `start` runs `git clean -fd`.
-  Untracked files count unless gitignored.
-- Anything that is not repo content — notes, logs, locks — belongs in the pool's
-  `.state/<slot>/`, never in a worktree. Do not run `git clean -fdx` in the main
-  worktree: it wipes `.ratoon/` — the hook toolbox, the notes and the install fingerprints — while
-  the slots themselves survive, so `start` keeps working with no hooks until `ratoon init` runs
-  again.
-- Hooks are read from the main working tree, never from the slot — even when the team commits
-  `.ratoon/hooks.ts` and a copy shows up in the checkout. Edit it in the main working tree; the
-  change takes effect on the next `start`.
-- A conflict pauses `finish` with exit 2. Edit the named files, remove the `<<<<<<<` markers, then
-  run the *same command again* — it stages the files and completes the rebase.
 - A change is not landed until `finish` succeeds.
 
-## Git
+## Read these when you need them
 
-`.ratoon/` is local state, not project content: `start` keeps it out of git with the single
-`.ratoon/*` rule in `.gitignore`. Never `git add` the pool or the state on your own; the config files
-stay local too unless the team whitelisted them.
-
-That rule is for git alone. A busy slot in the default pool is a full copy of the project inside the
-repository, so anything that walks the tree — the project's test runner, `tsc`, your own `grep` —
-finds the slots as ordinary directories, possibly on another branch. Keep their scope off `.ratoon/`,
-and never read a file there as the project's current state. A repository can keep the pool out of the
-tree with `git config ratoon.poolPath <base>`; the pool then lands under its own mirrored path inside
-that base, and `ratoon list` shows where it went.
-
-A team can share individual files by whitelisting them. The rule has to be `.ratoon/*` for that to
-work: with plain `.ratoon/`, git never descends into the directory and every `!` exception below it
-is ignored.
-
-```
-.ratoon/*
-!.ratoon/hooks.ts            # share the workflow config
-!.ratoon/plugins/            # share the whole plugin folder, including your own
-!.ratoon/plugins/ai.ts       # or just one plugin
-```
-
-Share `hooks.ts` and the plugins you wrote or edited. `types.ts` and the starter plugins are copies
-of the ratoon version that ran `init`; they can be shared too, but expect a diff on every upgrade.
-
-## The handoff sheet (`TASK.md`)
-
-With `ratoon init` in place, the starter `taskNotes()` plugin writes
-`<pool>/.state/<slot>/TASK.md` at `start` — `start` prints the full path, so use that instead of
-assuming the default pool location. It is a plain file the user can open without
-an agent session, and the one surface a subagent with an isolated context can still reach. It holds
-Plan (checkboxes), Findings and Left open. The next task in that slot overwrites it, so it describes
-the current task only. Without the plugin there is no sheet — say what changed instead of pointing
-at a file that does not exist.
-
-It is not your working memory: your own task list covers that. The sheet is read once, at approval,
-so write for the person deciding whether to land the work.
-
-- Replace the placeholder box with real steps before starting, and change `[ ]` to `[x]` as each one
-  finishes.
-- Write only what git cannot record. The diff already holds the changed files and the draft messages;
-  the sheet is for the reasons — why an approach was dropped, what not to retry, what is still
-  unverified. One line per item: no code blocks, no test output, no timestamps. A sheet longer than
-  a screen is one the reviewer skips.
-- The sheet does not land in git: `finish` leaves it behind and the next task overwrites it. Anything
-  that must outlive the task — a pitfall in an API, a decision the code depends on — belongs in a
-  code comment or the project's own docs, never here.
-- An open box makes `onFinish` warn at `finish`. Before asking for approval, paste the sheet to the
-  user and resolve whatever is still open.
-
-## Dispatching subagents
-
-Give each subagent its slot path, the task name, and these lines: commit only in that slot, keep
-notes and logs in `.state/<slot>/`, never commit in the main working tree, never run `finish`.
-Subagents have isolated contexts and their in-session task lists cannot be read from outside;
-progress that the user must see belongs in the handoff sheet, or in what you report back.
+- `references/stacking.md` — starting one task from another (`--base`), and which one to land first.
+- `references/landing-targets.md` — landing on another branch with `finish --into <branch>`, and its
+  two git limits.
+- `references/git-and-pool.md` — `.gitignore`, `poolPath`, sharing hook files, hooks are read from
+  the main working tree, scope tools off `.ratoon/`, conflict pause and exit 2.
+- `references/handoff-sheet.md` — how to write `TASK.md`, and what to read when a subagent takes over.
+- `references/subagents.md` — what to tell a subagent with an isolated context.
+- Writing a plugin — read the files `ratoon init` wrote: `.ratoon/types.ts` is the contract,
+  `.ratoon/hooks.ts` is the `Plugin[]` to edit, `.ratoon/plugins/` holds editable examples.

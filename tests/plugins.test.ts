@@ -114,11 +114,11 @@ describe('detectManager', () => {
 })
 
 describe('taskNotes', () => {
-  it('registers both lifecycles under one name', () => {
+  it('registers its lifecycle under one name', () => {
     const plugin = taskNotes()
     expect(plugin.name).toBe('taskNotes')
     expect(typeof plugin.onStart).toBe('function')
-    expect(typeof plugin.onFinish).toBe('function')
+    expect(plugin.onFinish).toBeUndefined()
   })
 
   it('writes a skeleton under .state, interpolating the task, branch and slot', () => {
@@ -127,11 +127,13 @@ describe('taskNotes', () => {
     expect(written).toContain('TASK: x')
     expect(written).toContain('feature/x')
     expect(written).toContain(slotDir)
-    // a handoff sheet for the human approving finish: real boxes, findings, open questions
-    expect(written).toContain('## Plan')
-    expect(written).toContain('- [ ] <first step>')
+    // gates in front of whoever opens the sheet; progress belongs in the draft commits
+    expect(written).toContain('## Goal')
     expect(written).toContain('## Findings')
     expect(written).toContain('## Left open')
+    expect(written).toContain('commit in this slot only')
+    expect(written).toContain('Not a changelog')
+    expect(written).not.toContain('- [ ]')
     // nothing lands in the worktree: no gitignore, no dirt, nothing to commit
     expect(existsSync(path.join(slotDir, 'TASK.md'))).toBe(false)
   })
@@ -152,42 +154,6 @@ describe('taskNotes', () => {
     const notes = path.join(rootDir, '.state', 'slot-0', 'PROGRESS.md')
     expect(readFileSync(notes, 'utf8')).toBe('# x!\n')
     expect(existsSync(path.join(slotDir, 'PROGRESS.md'))).toBe(false)
-  })
-
-  it('leaves the notes in place in onFinish — reading them later is the point', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const plugin = taskNotes()
-    plugin.onStart?.(ctx())
-    await plugin.onFinish?.(ctx())
-
-    expect(existsSync(path.join(rootDir, '.state', 'slot-0', 'TASK.md'))).toBe(true)
-  })
-
-  it('warns about an untouched handoff sheet', async () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    taskNotes().onStart?.(ctx())
-    await taskNotes().onFinish?.(ctx())
-
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining('unchecked boxes'))
-  })
-
-  it('stops warning once every box is ticked', async () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    taskNotes().onStart?.(ctx())
-    const notes = path.join(rootDir, '.state', 'slot-0', 'TASK.md')
-    writeFileSync(notes, readFileSync(notes, 'utf8').replace('- [ ]', '- [x]'))
-    await taskNotes().onFinish?.(ctx())
-
-    expect(spy).not.toHaveBeenCalled()
-  })
-
-  it('can be told not to warn', async () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    taskNotes().onStart?.(ctx())
-    // the template starts with an open box, so the option has something to suppress
-    await taskNotes({ warnUnchecked: false }).onFinish?.(ctx())
-
-    expect(spy).not.toHaveBeenCalled()
   })
 })
 

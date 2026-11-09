@@ -63,8 +63,9 @@ ratoon start add-banner                    # prints the slot path — edit, comm
 
 `ratoon init` is optional: it writes the hook toolbox (`.ratoon/hooks.ts`, `types.ts` and the
 starter plugins). Two starters are the reason to run it: `taskNotes()` — on by default — writes a
-`TASK.md` handoff sheet for each task, and `npmInstall()` — opt in by adding it to the array —
-installs dependencies in a cold slot and skips a warm one. `types.ts` is the hook contract;
+short `TASK.md` handoff sheet under the pool's `.state/`, for whoever picks the slot up next, and
+`npmInstall()` — opt in by adding it to the array — installs dependencies in a cold slot and skips
+a warm one. Progress lives in the slot's draft commits, not the sheet. `types.ts` is the hook contract;
 `ratoon <command> --help` is the reference for flags.
 
 It also gives those files an editor project of their own — `.ratoon/tsconfig.json` and a private

@@ -1,5 +1,5 @@
 import type { HookContext, LifecycleHook, Plugin } from '../types.ts'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { statePath } from './shared.ts'
 
@@ -8,34 +8,31 @@ export type TaskNotesContext = Pick<HookContext, 'task' | 'branch' | 'slotDir' |
 export interface TaskNotesOptions {
   /** Filename under `<root>/.state/<slot>/`. Default `TASK.md`. */
   file?: string
-  /** What to write in `onStart`. Default: a handoff sheet with one open box. */
+  /** What to write in `onStart`. Default: a short handoff sheet with no checkboxes. */
   template?: (ctx: TaskNotesContext) => string
-  /** Warn when the file still has `- [ ]` boxes left at `finish`. Default `true`. */
-  warnUnchecked?: boolean
 }
 
 /**
- * The handoff sheet a human reads before approving `finish`. It lives outside the worktree, so it
- * cannot be committed, staged by accident, or seen as dirt; it is also the one surface an agent
- * with an isolated context can reach through the filesystem.
- *
- * The template starts with an open box on purpose: a sheet nobody touched still warns at `finish`,
- * which is the reminder to fill in and clear the plan.
+ * A short sheet for whoever picks the slot up — the user at approval, or a new subagent after a
+ * broken context. It lives outside the worktree, so it cannot be committed, staged by accident,
+ * or seen as dirt. Progress lives in the slot's draft commits; this file carries only what git
+ * cannot record. The first line repeats the two gates from the skill because the sheet is written
+ * at `start`, just before the first edit is made.
  */
 function defaultTemplate(ctx: TaskNotesContext): string {
   return [
     `# TASK: ${ctx.task} (${ctx.branch})`,
     '',
+    'commit in this slot only · finish only after approval',
+    '',
     `- slot: ${ctx.slotDir}`,
     `- base: ${ctx.base}`,
     '',
-    '## Plan',
-    '(one line per step; tick [x] as each one finishes)',
-    '',
-    '- [ ] <first step>',
+    '## Goal',
+    '(one line: what this task is for)',
     '',
     '## Findings',
-    '(what git cannot record — why an approach was dropped, what not to retry. One line each)',
+    '(what git cannot record: where you are stuck, the next step, what you tried and dropped, what not to retry, what is still unverified. Not a changelog — no "added X", no file names)',
     '',
     '## Left open',
     '(decisions for the user; empty before finish)',
@@ -60,11 +57,5 @@ export function taskNotes(options: TaskNotesOptions = {}): Plugin {
     console.log(`  notes   : ${target}\n`)
   }
 
-  const onFinish: LifecycleHook = (ctx) => {
-    const target = statePath(ctx, file)
-    if (options.warnUnchecked !== false && existsSync(target) && readFileSync(target, 'utf8').includes('- [ ]'))
-      console.warn(`warning: ${file} still has unchecked boxes — confirm with the user before merging`)
-  }
-
-  return { name: 'taskNotes', onStart, onFinish }
+  return { name: 'taskNotes', onStart }
 }

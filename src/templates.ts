@@ -7,8 +7,8 @@ import { taskNotes } from './plugins/task-notes.ts'
  * Project hooks — one ordered plugin array. \`ratoon start\` and \`ratoon finish\` are separate
  * processes, so each lifecycle runs its own pass over the array, in array order.
  *
- * \`taskNotes()\` writes the handoff sheet under the pool's \`.state/\` and warns at \`finish\` when
- * boxes are still open; it cannot touch the repository. \`npmInstall()\` runs a package manager, so
+ * \`taskNotes()\` writes a short \`TASK.md\` handoff sheet under the pool's \`.state/\` for whoever
+ * picks the slot up next; it cannot touch the repository. \`npmInstall()\` runs a package manager, so
  * it stays opt-in. To enable it, add its import next to \`taskNotes\` and replace the array below:
  *
  *   import { npmInstall } from './plugins/npm-install.ts'
