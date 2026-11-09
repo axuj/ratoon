@@ -1,5 +1,5 @@
 import type { HookContext, LifecycleHook, Plugin } from '../types.ts'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { statePath } from './shared.ts'
 
@@ -57,5 +57,45 @@ export function taskNotes(options: TaskNotesOptions = {}): Plugin {
     console.log(`  notes   : ${target}\n`)
   }
 
-  return { name: 'taskNotes', onStart }
+  /** `ratoon task list` — the sheet's filename is this plugin's own choice, so the command is too. */
+  const commands: NonNullable<Plugin['commands']> = ({ rootDir, slots }) => ({
+    task: {
+      description: `handoff sheets (${file})`,
+      subCommands: {
+        list: {
+          description: `show where each ${file} lives`,
+          run: () => {
+            const rows = slots
+              .filter(slot => (slot.task || slot.branch) && !slot.missing)
+              .map((slot) => {
+                const notes = statePath({ rootDir, slotDir: slot.path }, file)
+                return [
+                  slot.task || slot.branch,
+                  slot.dir,
+                  existsSync(notes)
+                    ? notes
+                    : `${notes}  (missing)`,
+                ]
+              })
+            if (rows.length === 0) {
+              console.log(`no active tasks in ${rootDir}`)
+              return
+            }
+
+            const header = ['TASK', 'SLOT', 'NOTES']
+            const widths = header.map((title, index) =>
+              Math.max(title.length, ...rows.map(row => row[index]!.length)))
+            const line = (row: string[]): string =>
+              row.map((value, index) => value.padEnd(widths[index]!)).join('  ')
+            console.log(line(header))
+            console.log(widths.map(width => '-'.repeat(width)).join('  '))
+            for (const row of rows)
+              console.log(line(row))
+          },
+        },
+      },
+    },
+  })
+
+  return { name: 'taskNotes', onStart, commands }
 }

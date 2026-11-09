@@ -24,6 +24,58 @@ export interface HookContext {
 
 export type LifecycleHook = (ctx: HookContext) => unknown | Promise<unknown>
 
+/** One slot as a command sees it. Read-only: a command reports on the pool, the engine owns it. */
+export interface SlotView {
+  dir: string
+  path: string
+  task: string
+  branch: string
+  worktree: boolean
+  missing: boolean
+}
+
+/** Facts available when a plugin declares its commands, and again when one of them runs. */
+export interface PluginContext {
+  /** the pool — slots live here, notes and claims under `.state/` */
+  rootDir: string
+  /** the repository's own working tree */
+  mainDir: string
+  /** a snapshot of every slot, in pool order */
+  slots: readonly SlotView[]
+}
+
+export type CommandArgs = Record<string, string | number | boolean | string[] | undefined>
+
+/** What a command's `run` receives: the parsed arguments together with the pool facts. */
+export interface CommandRunContext extends PluginContext {
+  args: CommandArgs
+  rawArgs: string[]
+}
+
+/**
+ * An argument definition with the same shape as the CLI's own. Declared here so a hooks file
+ * needs no dependency on ratoon's packages: it runs from the project's `.ratoon/` directory.
+ */
+export interface PluginArgDef {
+  type: 'string' | 'boolean' | 'positional' | 'enum'
+  description?: string
+  valueHint?: string
+  alias?: string
+  default?: string | boolean
+  required?: boolean
+  options?: string[]
+}
+
+/** One command, optionally a group. `run` is optional on a group. */
+export interface PluginCommandSpec {
+  description?: string
+  args?: Record<string, PluginArgDef>
+  subCommands?: Record<string, PluginCommandSpec>
+  run?: (ctx: CommandRunContext) => unknown | Promise<unknown>
+}
+
+export type PluginCommands = Record<string, PluginCommandSpec>
+
 /**
  * A reusable unit of behaviour. `name` is not cosmetic: failures are reported as
  * `plugin "npmInstall" failed in onStart` so you know the stack points into ratoon's source
@@ -44,6 +96,13 @@ export interface Plugin {
   onStart?: LifecycleHook
   /** `ratoon finish` — before the dirty check; runs in array order. */
   onFinish?: LifecycleHook
+  /**
+   * Commands this plugin adds to `ratoon`. Called when the CLI builds its command tree; every
+   * key becomes a top-level subcommand. A name already used by the engine or an earlier plugin
+   * is skipped, with a line on stderr. Each command declares only the flags it reads; `run`
+   * receives the parsed args and a read-only pool snapshot instead of a slot context.
+   */
+  commands?: (ctx: PluginContext) => PluginCommands | Promise<PluginCommands>
 }
 
 /**

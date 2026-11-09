@@ -17,6 +17,7 @@ ratoon finish <task> -m <title>     squash the task into one commit, park the sl
 ratoon finish <task> --into <branch> land on another branch, leaving the main worktree alone
 ratoon abandon <task>               throw the work away, keep the slot
 ratoon list                         show the pool
+ratoon task list                    show each active task's handoff sheet (taskNotes, on by default)
 ratoon init                         optional: generate the hook toolbox
 ```
 
@@ -64,8 +65,9 @@ ratoon start add-banner                    # prints the slot path — edit, comm
 `ratoon init` is optional: it writes the hook toolbox (`.ratoon/hooks.ts`, `types.ts` and the
 starter plugins). Two starters are the reason to run it: `taskNotes()` — on by default — writes a
 short `TASK.md` handoff sheet under the pool's `.state/`, for whoever picks the slot up next, and
-`npmInstall()` — opt in by adding it to the array — installs dependencies in a cold slot and skips
-a warm one. Progress lives in the slot's draft commits, not the sheet. `types.ts` is the hook contract;
+provides `ratoon task list`, which prints every active sheet's path. `npmInstall()` — opt in by
+adding it to the array — installs dependencies in a cold slot and skips a warm one. Progress
+lives in the slot's draft commits, not the sheet. `types.ts` is the hook contract;
 `ratoon <command> --help` is the reference for flags.
 
 It also gives those files an editor project of their own — `.ratoon/tsconfig.json` and a private
@@ -142,6 +144,29 @@ project but outside `.ratoon/`.
 
 The hooks are optional. Delete `.ratoon/hooks.ts` and the repository is a plain worktree pool:
 allocate, branch, clean, squash, rebase, merge, park.
+
+## Plugin commands
+
+A plugin can add commands to the CLI. `Plugin.commands(ctx)` returns a table of command names —
+each entry may carry `args`, nested `subCommands` and a `run(ctx)`, and the factory may be async.
+A command declares only the flags it reads; `run` receives the parsed args plus a read-only snapshot
+of the pool (`rootDir`, `mainDir`, `slots`), so a plugin needs no dependency on ratoon's own
+packages. The starter `taskNotes()` uses this for `ratoon task list`, which prints the path of every
+active task's handoff sheet. The filename comes from the plugin's own `file` option, so the command
+follows a custom name too.
+
+Commands are discovered by loading `.ratoon/hooks.ts` and `<pool>/hooks.ts`. The engine does that
+only for `--help`, an unknown command, or a name the plugins own; `start`, `finish`, `abandon`,
+`list` and `init` never load hooks for discovery. Help and usage errors do, so keep side effects
+out of a hooks file's top level and put them in a command's `run`. A name already used by the
+engine or an earlier plugin is skipped with a line on stderr, and a hooks file that fails to load
+costs only its own commands — never the built-in ones.
+
+`task list` needs no extra setup: `init` writes `taskNotes()` into `.ratoon/hooks.ts` by default, so
+the command is there as soon as the toolbox exists. Remove `taskNotes()` from that array and the
+command goes away with the sheet. `init` only writes missing files — a plugin source copied by an
+older `init` has no `commands` field, so the command is missing even though the plugin is listed.
+Delete `.ratoon/plugins/task-notes.ts` and run `init` again to take the current copy.
 
 ## What landing looks like
 

@@ -1,11 +1,11 @@
 # The handoff sheet (`TASK.md`)
 
 With `ratoon init` in place, the starter `taskNotes()` plugin writes
-`<pool>/.state/<slot>/TASK.md` at `start` — `start` prints the full path, so use that instead of
-assuming the default pool location. It is a plain file the user can open without an agent session,
-and the one surface a subagent with an isolated context can still reach. It holds Goal, Findings
-and Left open. Without the plugin there is no sheet — say what changed instead of pointing at a
-file that does not exist.
+`<pool>/.state/<slot>/TASK.md` at `start` — `start` prints the full path, and `ratoon task list`
+prints it again for every active task, so use one of those instead of assuming the default pool
+location. It is a plain file the user can open without an agent session, and the one surface a
+subagent with an isolated context can still reach. It holds Goal, Findings and Left open. Without
+the plugin there is no sheet — say what changed instead of pointing at a file that does not exist.
 
 The sheet is temporary: the next task in that slot overwrites it, and it is not kept as a record.
 Progress lives in the slot's draft commits — read `git log --oneline` there. Write in the user's

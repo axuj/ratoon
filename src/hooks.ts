@@ -44,10 +44,10 @@ export function hookPath(dir: string): string {
  * tree only — a team may commit it to share the config, but the copy a slot checks out is never
  * consulted, so the file that runs is the one being edited.
  */
-function hookFiles(facts: HookFacts): string[] {
+export function hookFiles(rootDir: string, mainDir: string): string[] {
   const candidates = [
-    path.join(facts.rootDir, 'hooks.ts'),
-    hookPath(facts.mainDir),
+    path.join(rootDir, 'hooks.ts'),
+    hookPath(mainDir),
   ].map(file => path.resolve(file))
   return Array.from(new Set(candidates)).filter(exists)
 }
@@ -105,7 +105,7 @@ async function withSlotCwd<T>(slotDir: string, fn: () => Promise<T>): Promise<T>
  * happens outside the slot claim; the caller decides when to `run()` a lifecycle.
  */
 export async function loadHooks(facts: HookFacts): Promise<HookRunner> {
-  const files = hookFiles(facts)
+  const files = hookFiles(facts.rootDir, facts.mainDir)
   const inert: HookRunner = {
     present: false,
     count: 0,

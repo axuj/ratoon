@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { cli, leadingOptionError, nodeVersionError } from '../src/cli.ts'
+import { builtInCommands, leadingOptionError, nodeVersionError } from '../src/cli.ts'
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 
@@ -11,8 +11,8 @@ function runCli(...args: string[]): { status: number, stdout: string, stderr: st
 }
 
 describe('citty command tree', () => {
-  it('exposes the five commands through meta', () => {
-    expect(Object.keys(cli.subCommands as Record<string, unknown>)).toEqual([
+  it('exposes the five built-in commands through meta', () => {
+    expect(Object.keys(builtInCommands)).toEqual([
       'init',
       'start',
       'finish',

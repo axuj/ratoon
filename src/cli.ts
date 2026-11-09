@@ -4,9 +4,10 @@ import { readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { defineCommand, runMain } from 'citty'
+import { defineCommand, runMain, showUsage } from 'citty'
 import { runAbandon } from './abandon.ts'
 import { flagSetOf, unknownFlagMessage } from './args.ts'
+import { pluginCommands, pluginDiagnostics } from './commands.ts'
 import { PausedError } from './errors.ts'
 import { runFinish } from './finish.ts'
 import { runInit } from './init.ts'
@@ -211,24 +212,54 @@ const initCommand = defineCommand({
   run: ctx => guard(ctx, () => runInit()),
 })
 
+/** The engine's own commands. Plugin commands are merged in at runtime, never into this table. */
+export const builtInCommands = {
+  init: initCommand,
+  start: startCommand,
+  finish: finishCommand,
+  abandon: abandonCommand,
+  list: listCommand,
+}
+
+/** `main()` records its argv so `subCommands` can decide whether plugins need to be loaded. */
+let currentRawArgs: string[] = []
+
+/**
+ * Importing a hooks file runs its top-level code with the caller's cwd, not the slot cwd a
+ * lifecycle hook gets. Keep that to the argv paths that need plugin commands — help, an unknown
+ * command, or one of the plugin's own names — so the built-in commands behave as before.
+ */
+function needsPluginCommands(rawArgs: string[]): boolean {
+  const first = rawArgs[0]
+  if (first === undefined || first.startsWith('-'))
+    return true
+  return !(first in builtInCommands)
+}
+
+/** Plugin discovery failures are diagnostics, not usage text: report them on stderr. */
+const reportUsage: typeof showUsage = async (cmd, parent) => {
+  await showUsage(cmd, parent)
+  for (const line of pluginDiagnostics())
+    console.error(`ratoon: ${line}`)
+}
+
 export const cli = defineCommand({
   meta: {
     name: 'ratoon',
     version: version(),
     description: 'Parallel git worktrees for long-running tasks and agents',
   },
-  subCommands: {
-    init: initCommand,
-    start: startCommand,
-    finish: finishCommand,
-    abandon: abandonCommand,
-    list: listCommand,
-  },
+  subCommands: async () => ({
+    ...(needsPluginCommands(currentRawArgs)
+      ? await pluginCommands(Object.keys(builtInCommands))
+      : {}),
+    ...builtInCommands,
+  }),
 })
 
 /** The command that declares `flag`, or `undefined` when none does. Reads the same definitions citty does. */
 function commandDeclaring(flag: string): string | undefined {
-  for (const [name, command] of Object.entries(cli.subCommands ?? {})) {
+  for (const [name, command] of Object.entries(builtInCommands)) {
     const def: unknown = command.args
     if (typeof def !== 'object' || def === null)
       continue
@@ -287,7 +318,8 @@ export async function main(rawArgs = process.argv.slice(2)): Promise<void> {
     process.exitCode = 1
     return
   }
-  await runMain(cli, { rawArgs })
+  currentRawArgs = rawArgs
+  await runMain(cli, { rawArgs, showUsage: reportUsage })
 }
 
 // Entry guard: `nub src/cli.ts <cmd>` runs this file directly; importing it (tests) must not.

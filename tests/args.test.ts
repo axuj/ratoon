@@ -1,11 +1,11 @@
 import type { ArgsDef } from 'citty'
 import { describe, expect, it } from 'vitest'
 import { firstUnknownFlag, flagSetOf } from '../src/args.ts'
-import { cli } from '../src/cli.ts'
+import { builtInCommands } from '../src/cli.ts'
 
 /** The definition the CLI actually runs with — the point is that there is only one. */
 function flagsOf(command: string) {
-  const sub = (cli.subCommands as unknown as Record<string, { args: ArgsDef }>)[command]!
+  const sub = (builtInCommands as unknown as Record<string, { args: ArgsDef }>)[command]!
   return flagSetOf(sub.args)
 }
 

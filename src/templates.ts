@@ -14,6 +14,9 @@ import { taskNotes } from './plugins/task-notes.ts'
  *   import { npmInstall } from './plugins/npm-install.ts'
  *   export default [taskNotes(), npmInstall()] satisfies Plugin[]
  *
+ * The starter taskNotes plugin also provides ratoon task list, which prints the path of each
+ * active task's handoff sheet. Remove it from the array below and both the sheet and the command go.
+ *
  * The workflow rules live in the ratoon skill, not in this file.
  */
 export default [taskNotes()] satisfies Plugin[]
