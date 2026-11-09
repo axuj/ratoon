@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -41,22 +41,6 @@ function ownSource(name: string): string {
 export function refuseSelf(dir: string): void {
   if (path.resolve(dir) === path.resolve(ratoonRoot()))
     throw new Error('refusing to init ratoon inside itself — run init from a different repository')
-}
-
-/**
- * The repository `init` installs into: the nearest ancestor whose `.git` is a directory. A worktree
- * (`.git` as a file) is not it — the repository you manage is the one that owns the history.
- */
-export function repoRootOf(start: string): string {
-  for (let dir = path.resolve(start); ;) {
-    const git = path.join(dir, '.git')
-    if (existsSync(git) && lstatSync(git).isDirectory())
-      return dir
-    const parent = path.dirname(dir)
-    if (parent === dir)
-      throw new Error(`not inside a git repository: ${start}\nrun ratoon init from the repository you want to manage`)
-    dir = parent
-  }
 }
 
 /**
@@ -184,7 +168,7 @@ export async function runInit(): Promise<void> {
   // first: a stray `init` in ratoon's own checkout must never write into it
   refuseSelf(cwd)
 
-  const repo = repoRootOf(cwd)
+  const repo = (await layoutOf()).mainDir
   ensureWritable(repo)
   const { wrote, kept } = writeScaffolding(repo)
   const ignored = ensureRatoonIgnored(repo)

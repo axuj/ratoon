@@ -41,6 +41,31 @@ export async function currentBranch(dir: string): Promise<string> {
     : ''
 }
 
+/**
+ * The worktree that has `branch` checked out, or "" when none does. Git refuses to move a branch a
+ * worktree is standing on, so this is asked before anything is squashed: failing later would undo
+ * a squash-and-rebase that had already run.
+ */
+export async function checkedOutAt(mainDir: string, branch: string): Promise<string> {
+  const list = await exec('git', [
+    '-C',
+    mainDir,
+    'worktree',
+    'list',
+    '--porcelain',
+  ])
+  if (list.status !== 0)
+    return ''
+  let where = ''
+  for (const line of list.stdout.split('\n')) {
+    if (line.startsWith('worktree '))
+      where = line.slice('worktree '.length).trim()
+    else if (line.trim() === `branch refs/heads/${branch}`)
+      return where
+  }
+  return ''
+}
+
 /** Commit id for `ref`, or "" when it does not resolve. */
 export async function revOf(dir: string, ref: string): Promise<string> {
   const result = await exec('git', [

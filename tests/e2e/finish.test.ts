@@ -470,4 +470,155 @@ describe('ratoon finish', () => {
     expect(gitOut(c.repo, 'rev-list', '--merges', 'master')).toBe('')
     expect(slotState()).toMatchObject({ busy: false })
   })
+
+  it('lands on another branch and leaves the main worktree alone', async () => {
+    gitOut(c.repo, 'branch', 'v2', 'master')
+    await start(c, 'onto-v2')
+    commitInSlot('slot-0', 'feature.txt', 'hello\n', 'add feature')
+    const masterBefore = gitOut(c.repo, 'rev-parse', 'master')
+
+    const result = await finish('onto-v2', ['--into', 'v2'])
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.stdout).toContain('[3/4] landing feature/onto-v2 on v2')
+    expect(result.stdout).toContain('fast-forwarding v2 without touching the main worktree')
+
+    // v2 moved; master, the checked-out branch and the files in the main worktree did not
+    expect(gitOut(c.repo, 'show', 'v2:feature.txt')).toBe('hello')
+    expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(masterBefore)
+    expect(gitOut(c.repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('master')
+    expect(existsSync(path.join(c.repo, 'feature.txt'))).toBe(false)
+    expect(gitStatus(c.repo)).toEqual([])
+    expect(slotState()).toMatchObject({ busy: false })
+  })
+
+  it('rebases onto the target when that branch has moved on', async () => {
+    gitOut(c.repo, 'checkout', '-b', 'v2')
+    writeFile(path.join(c.repo, 'v2only.txt'), 'v2\n')
+    await commitAll(c.repo, 'v2 only')
+    gitOut(c.repo, 'checkout', 'master')
+
+    await start(c, 'onto-moved')
+    commitInSlot('slot-0', 'feature.txt', 'hello\n', 'add feature')
+
+    const result = await finish('onto-moved', ['--into', 'v2'])
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.stdout).toContain('v2 has new commits — rebasing feature/onto-moved onto v2')
+
+    // the task replays on top of v2's own commit, and stays the single commit it was
+    expect(gitOut(c.repo, 'show', 'v2:v2only.txt')).toBe('v2')
+    expect(gitOut(c.repo, 'show', 'v2:feature.txt')).toBe('hello')
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'v2')).toBe('feat: onto-moved')
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'v2')).toBe('')
+
+    // master is untouched — this is the whole point of --into
+    expect(gitOut(c.repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('master')
+    expect(() => gitOut(c.repo, 'show', 'master:feature.txt')).toThrow()
+    expect(slotState()).toMatchObject({ busy: false })
+  })
+
+  it('stacks a second task on the first one, into the same branch', async () => {
+    // the long-lived line the feature exists for: v2 accumulates one landing after another, and
+    // the second task starts from the first landing rather than from master
+    gitOut(c.repo, 'branch', 'v2', 'master')
+
+    await start(c, 'first-line')
+    commitInSlot('slot-0', 'one.txt', 'one\n', 'add one')
+    expect((await finish('first-line', ['--into', 'v2'])).status).toBe(0)
+
+    await start(c, 'second-line', ['--base', 'v2'])
+    commitInSlot('slot-0', 'two.txt', 'two\n', 'add two')
+    const second = await finish('second-line', ['--into', 'v2'])
+    expect(second.status, second.stdout + second.stderr).toBe(0)
+
+    // v2 carries both, newest on top, one commit each, still linear
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'v2')).toBe('feat: second-line')
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'v2~1')).toBe('feat: first-line')
+    expect(gitOut(c.repo, 'show', 'v2:one.txt')).toBe('one')
+    expect(gitOut(c.repo, 'show', 'v2:two.txt')).toBe('two')
+    expect(gitOut(c.repo, 'rev-list', '--merges', 'v2')).toBe('')
+
+    // neither landing reached master or the main worktree
+    expect(gitOut(c.repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('master')
+    expect(() => gitOut(c.repo, 'show', 'master:one.txt')).toThrow()
+    expect(slotState()).toMatchObject({ busy: false })
+  })
+
+  it('refuses a target another worktree is standing on, before squashing anything', async () => {
+    gitOut(c.repo, 'branch', 'v2', 'master')
+    gitOut(c.repo, 'worktree', 'add', path.join(c.tmp, 'v2-checkout'), 'v2')
+
+    await start(c, 'blocked-into')
+    commitInSlot('slot-0', 'feature.txt', 'hello\n', 'add feature')
+
+    const result = await finish('blocked-into', ['--into', 'v2'])
+    // refused up front, not halfway: git will not move that ref, and a re-run cannot change that
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('is checked out in another worktree')
+    expect(result.stderr).toContain('v2-checkout')
+    expect(result.stdout).not.toContain('[1/4]')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/blocked-into')).toContain('feature/blocked-into')
+    expect(gitOut(c.repo, 'show', '--format=%s', '-s', 'feature/blocked-into')).toBe('add feature')
+    expect(slotState()).toMatchObject({ busy: true, task: 'blocked-into' })
+  })
+
+  it('refuses --into that is not a local branch, instead of inventing one', async () => {
+    // both resolve through `git rev-parse`, which is what used to be enough to pass
+    gitOut(c.repo, 'tag', 'v1', 'master')
+    gitOut(c.repo, 'update-ref', 'refs/remotes/origin/main', 'master')
+
+    await start(c, 'not-a-branch')
+    commitInSlot('slot-0', 'feature.txt', 'hello\n', 'add feature')
+
+    for (const ref of ['v1', 'origin/main']) {
+      const result = await finish('not-a-branch', ['--into', ref])
+      expect(result.status, result.stderr).toBe(1)
+      expect(result.stderr).toContain(`--into needs a local branch, and ${ref} is not one`)
+      expect(result.stdout).not.toContain('[1/4]')
+      // nothing conjured up under that name: the tag is still only a tag
+      expect(() => gitOut(c.repo, 'show-ref', '--verify', `refs/heads/${ref}`)).toThrow()
+    }
+
+    expect(gitOut(c.repo, 'show-ref', '--verify', 'refs/heads/feature/not-a-branch')).toContain('feature/not-a-branch')
+    expect(slotState()).toMatchObject({ busy: true, task: 'not-a-branch' })
+  })
+
+  it('lands on --into while the main worktree is detached', async () => {
+    gitOut(c.repo, 'branch', 'v2', 'master')
+    const parked = gitOut(c.repo, 'rev-parse', 'HEAD')
+    gitOut(c.repo, 'checkout', '--detach')
+
+    await start(c, 'detached-main')
+    commitInSlot('slot-0', 'feature.txt', 'hello\n', 'add feature')
+
+    // no branch to name, so the default target is refused before anything is touched
+    const refused = await finish('detached-main')
+    expect(refused.status, refused.stderr).toBe(1)
+    expect(refused.stdout).not.toContain('[1/4]')
+
+    const landed = await finish('detached-main', ['--into', 'v2'])
+    expect(landed.status, landed.stdout + landed.stderr).toBe(0)
+
+    // the task landed, and the detached main worktree is exactly where it was
+    expect(gitOut(c.repo, 'show', 'v2:feature.txt')).toBe('hello')
+    expect(gitOut(c.repo, 'rev-parse', 'HEAD')).toBe(parked)
+    expect(gitOut(c.repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD')
+    expect(existsSync(path.join(c.repo, 'feature.txt'))).toBe(false)
+    expect(slotState()).toMatchObject({ busy: false })
+  })
+
+  it('refuses --base altogether, so a start flag cannot pass for a landing one', async () => {
+    gitOut(c.repo, 'checkout', '-b', 'v2')
+    await start(c, 'base-on-finish', ['--base', 'master'])
+    commitInSlot('slot-0', 'feature.txt', 'hello\n', 'add feature')
+
+    // the same --base a reader could copy over from `start`
+    const result = await finish('base-on-finish', ['--base', 'master'])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('unknown option --base')
+
+    // rejected before anything was touched: branch kept, slot still claimed
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/base-on-finish')).toContain('feature/base-on-finish')
+    expect(() => gitOut(c.repo, 'show', 'v2:feature.txt')).toThrow()
+    expect(slotState()).toMatchObject({ busy: true, task: 'base-on-finish' })
+  })
 })

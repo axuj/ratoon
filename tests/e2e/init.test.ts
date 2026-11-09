@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -25,7 +25,8 @@ const SCAFFOLD = [
 const created: string[] = []
 
 function freshDir(): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'ratoon init '))
+  // realpath: git answers with canonical paths, so a short 8.3 name would not compare
+  const dir = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'ratoon init ')))
   created.push(dir)
   return dir
 }
@@ -178,12 +179,12 @@ describe('ratoon init', () => {
     expect(result.stderr).toContain('is a file, not a directory')
   })
 
-  it('says --force is gone instead of silently doing nothing', async () => {
+  it('rejects --force: there is nothing for it to mean', async () => {
     const { repo } = freshRepo()
 
     const result = await ratoon(['init', '--force'], { cwd: repo })
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('--force was removed')
+    expect(result.stderr).toContain('unknown option --force')
     expect(existsSync(path.join(repo, '.ratoon'))).toBe(false)
   })
 

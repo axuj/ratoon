@@ -11,12 +11,13 @@ The name is the agronomic one: after a harvest the *ratoon* (regrowth) springs f
 system, which is exactly what a slot does.
 
 ```
-ratoon start <task>               claim a slot, create the branch, run the hooks
-ratoon start <task> --base <ref>  start from another task's commit, not the base branch
-ratoon finish <task> -m <title>   squash the task into one commit, park the slot
-ratoon abandon <task>             throw the work away, keep the slot
-ratoon list                       show the pool
-ratoon init                       optional: generate the hook toolbox
+ratoon start <task>                 claim a slot, create the branch, run the hooks
+ratoon start <task> --base <ref>    start from another task's commit, not the base branch
+ratoon finish <task> -m <title>     squash the task into one commit, park the slot
+ratoon finish <task> --into <branch> land on another branch, leaving the main worktree alone
+ratoon abandon <task>               throw the work away, keep the slot
+ratoon list                         show the pool
+ratoon init                         optional: generate the hook toolbox
 ```
 
 ## Why
@@ -164,6 +165,33 @@ own messages are discarded.
 Parking leaves the slot detached at `master`: the branch is dropped, the worktree and its
 `node_modules` stay.
 
+## Landing somewhere else
+
+`finish` lands on the branch the main worktree has checked out. `--into` names a different one:
+
+```bash
+ratoon finish port-dialog --into v2 -m "feat: port the dialog"
+```
+
+The task is squashed, rebased onto `v2`, and `v2` is fast-forwarded — while the main worktree keeps
+its branch, its files and its uncommitted edits. Nothing is merged into the checked-out branch.
+
+`--into` takes a local branch. A tag or `origin/v2` is refused rather than turned into a branch of
+that name.
+
+That is what makes a second long-lived line workable. `main` keeps shipping, `v2` keeps growing, and
+a task lands on either without moving the main worktree between them — no stashing, no switching
+back and forth, no second checkout to babysit. `--base` is the opposite direction (where a task
+*starts*), and only `start` has it.
+
+Two limits come from git, not from ratoon:
+
+- **The target only moves forward.** The task is rebased onto the target before it lands, so the
+  update is a fast-forward by construction. If something else landed on the target in between,
+  `finish` pauses with exit 2 and the same command reconciles.
+- **The target must not be checked out in another worktree.** Git will not move a branch a worktree
+  has open. `finish` refuses before squashing anything and names that worktree.
+
 ## Stacking one task on another
 
 `--base` starts a task at another task's commit instead of the base branch:
@@ -173,11 +201,9 @@ ratoon start review --base feature/add-banner   # review starts where add-banner
 ```
 
 It is a copy of that work in a new slot, not a link — the new branch carries the other task's
-drafts, so landing it lands both. `--base` needs a committed checkpoint (uncommitted work in the
-other slot is invisible), and it is a starting point and a rebase target, never a merge target:
-`finish` still lands on the branch checked out in the main worktree. Which of the two to finish
-first depends on whether both should land; the skill's *Building on another task* has the
-decision.
+drafts, so landing it lands both. `--base` needs a committed checkpoint: uncommitted work in the
+other slot is invisible, and the flag only says where a branch *starts*. Which of the two to finish
+first depends on whether both should land; the skill's *Building on another task* has the decision.
 
 ## Development
 

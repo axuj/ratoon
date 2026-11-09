@@ -1,6 +1,6 @@
 ---
 name: ratoon
-description: Work on several tasks at once in parallel git worktrees, or land a task as exactly one commit. Use when a second task starts while another is in progress, when several agents or subagents work at once, when a task must be isolated from the main working tree, or when a branch's draft commits need squashing into one. Commands are ratoon init, start, list, finish, abandon.
+description: Work on several tasks at once in parallel git worktrees, or land a task as exactly one commit. Use when a second task starts while another is in progress, when several agents or subagents work at once, when a task must be isolated from the main working tree, when a branch's draft commits need squashing into one, or when the work must land on a branch other than the one checked out. Commands are ratoon init, start, list, finish, abandon.
 ---
 
 # ratoon
@@ -23,8 +23,9 @@ from `ratoon list` or from `start` output instead of assuming it.
 2. Commit inside the slot as often as you like. Those messages are drafts and never reach the base.
 3. Show the user what changed and **wait for explicit approval** before landing. When `taskNotes()`
    is enabled, the handoff sheet is what you show.
-4. `ratoon finish <task> -m "<message>"` squashes, rebases onto the base, fast-forwards, and parks
-   the slot. The `-m` text is the landing commit, verbatim.
+4. `ratoon finish <task> -m "<message>"` squashes, rebases onto the target, fast-forwards, and parks
+   the slot. The `-m` text is the landing commit, verbatim. The target is the branch checked out in
+   the main worktree; `--into <branch>` lands elsewhere and leaves that worktree untouched.
 5. `ratoon abandon <task>` throws the work away and parks the slot.
 
 `ratoon list` shows the pool. `ratoon <command> --help` is the reference for flags.
@@ -40,8 +41,21 @@ B's own changes. `--base` needs a committed checkpoint; uncommitted work in A is
   automatically. Landing B first puts A's work under B's commit and leaves nothing for A to land.
 - Two independent directions → start both from the main branch, do not base one on the other.
 
-`finish` lands on the main worktree's checked-out branch (usually `master`); `--base` is a
-starting point and a rebase target, never a merge target.
+## Landing on another branch
+
+`finish --into <branch>` lands the work on a branch the main worktree does *not* have checked out —
+the shape of a long-lived second line, such as `v2` growing next to a shipping `main`. The task is
+squashed, rebased onto that branch, and the branch is fast-forwarded; the main worktree keeps its
+branch, its files and its uncommitted edits, so a task can land on either line without stashing or
+switching.
+
+- The target only moves forward. If something landed on it first, `finish` pauses with exit 2 —
+  nothing changed, run the same command again.
+- The target must not be checked out in another worktree; git will not move it. `finish` refuses
+  before squashing anything and names that worktree — exit 1, and re-running changes nothing until
+  it is free.
+- `--into` takes a local branch. A tag or `origin/v2` is refused rather than turned into a branch of
+  that name.
 
 ## Rules
 
@@ -114,7 +128,6 @@ so write for the person deciding whether to land the work.
   code comment or the project's own docs, never here.
 - An open box makes `onFinish` warn at `finish`. Before asking for approval, paste the sheet to the
   user and resolve whatever is still open.
-- It lives outside the worktree, so it can never be committed or counted as dirt — keep it there.
 
 ## Dispatching subagents
 

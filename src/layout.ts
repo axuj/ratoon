@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import { refExists } from './git.ts'
 import { exec } from './shell.ts'
@@ -131,62 +131,61 @@ export function poolIsIgnoredByRule(root: string, mainDir: string): boolean {
  */
 export async function layoutOf(hints: { cwd?: string } = {}): Promise<Layout> {
   const cwd = path.resolve(hints.cwd ?? process.cwd())
-  const repo = mainRepoOf(cwd)
-  if (!repo) {
-    throw new Error(
-      `not inside a git repository: ${cwd}\n`
-      + 'run ratoon from inside the repository you want to manage.',
-    )
-  }
-  const configured = await configuredPool(repo)
+  const mainDir = await mainRepoOf(cwd)
+  const configured = await configuredPool(mainDir)
   return {
-    root: configured?.root ?? poolForRepo(repo),
-    mainDir: repo,
+    root: configured?.root ?? poolForRepo(mainDir),
+    mainDir,
     configuredBy: configured?.origin ?? '',
   }
 }
 
 /**
- * The main working tree for `cwd`, found without spawning git: walk up to the nearest `.git`, then
- * follow a worktree's `gitdir:` pointer through `commondir` back to the repository that owns the
- * history. Pure fs keeps this lookup cheap; the only subprocess in the layout is the config read.
- * It also works when a slot lives outside the repository, because git's admin dir stays put.
+ * The main working tree for `cwd`. `--show-toplevel` answers for the checkout being stood in, which
+ * covers a subdirectory and a submodule; a linked worktree is the one case it does not answer, and
+ * there `--git-dir` differs from `--git-common-dir`, so the main tree is the first one
+ * `git worktree list` prints.
  */
-function mainRepoOf(startDir: string): string | undefined {
-  for (let dir = path.resolve(startDir); ;) {
-    const dot = path.join(dir, '.git')
-    try {
-      const stat = lstatSync(dot)
-      if (stat.isDirectory())
-        return dir
-      if (stat.isFile()) {
-        const text = readFileSync(dot, 'utf8').trim()
-        const prefix = 'gitdir:'
-        if (!text.toLowerCase().startsWith(prefix))
-          return undefined
-        const gitDir = path.resolve(dir, text.slice(prefix.length).trim())
-        let common = path.resolve(gitDir, '..', '..')
-        try {
-          common = path.resolve(gitDir, readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim())
-        }
-        catch {}
-        return path.dirname(common)
-      }
-    }
-    catch {}
-    const parent = path.dirname(dir)
-    if (parent === dir)
-      return undefined
-    dir = parent
+async function mainRepoOf(cwd: string): Promise<string> {
+  const paths = await exec('git', [
+    '-C',
+    cwd,
+    'rev-parse',
+    '--path-format=absolute',
+    '--show-toplevel',
+    '--git-dir',
+    '--git-common-dir',
+  ])
+  const [top = '', gitDir = '', commonDir = ''] = paths.stdout.trim().split('\n')
+  if (paths.status !== 0 || top === '') {
+    throw new Error(
+      `not inside a git repository: ${cwd}\n`
+      + 'run ratoon from inside the repository you want to manage.',
+    )
   }
+  if (path.resolve(gitDir) === path.resolve(commonDir))
+    return path.resolve(top)
+
+  const list = await exec('git', [
+    '-C',
+    cwd,
+    'worktree',
+    'list',
+    '--porcelain',
+  ])
+  const first = list.stdout.split('\n')[0] ?? ''
+  if (list.status !== 0 || !first.startsWith('worktree '))
+    throw new Error(`cannot read the worktrees of ${top} — is it still a git repository?`)
+  return path.resolve(first.slice('worktree '.length).trim())
 }
 
 /** `--base` wins; otherwise master, then main. */
-export async function resolveBaseRef(opts: { base: string, baseAuto: boolean }, mainDir: string): Promise<string> {
-  if (!opts.baseAuto) {
-    if (!await refExists(mainDir, opts.base))
-      throw new Error(`base ref not found: ${opts.base}`)
-    return opts.base
+export async function resolveBaseRef(opts: { base?: string }, mainDir: string): Promise<string> {
+  const given = opts.base
+  if (given !== undefined) {
+    if (!await refExists(mainDir, given))
+      throw new Error(`base ref not found: ${given}`)
+    return given
   }
   for (const candidate of ['master', 'main']) {
     if (await refExists(mainDir, candidate))

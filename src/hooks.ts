@@ -53,10 +53,9 @@ function hookFiles(facts: HookFacts): string[] {
 }
 
 /**
- * The `plugins:` line every command prints. Three states matter, and they used to collapse into
- * one: nothing installed, a file that enables nothing, and plugins that simply do not implement
- * this lifecycle. The first two look identical to a user who just ran `init` and is wondering why
- * nothing installed.
+ * The `plugins:` line every command prints. Three states all read as "nothing happened", and each
+ * prints differently: no hooks file, a file that enables nothing, and plugins that do not implement
+ * this lifecycle — the first two are what a user who just ran `init` is looking at.
  */
 export function describeHooks(present: boolean, ran: readonly string[], count: number): string {
   if (!present)

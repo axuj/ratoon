@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,7 +43,9 @@ export async function makeRepo(opts: { withPackageJson?: boolean, install?: bool
   const withPackageJson = opts.withPackageJson ?? true
   const install = opts.install ?? false
   const withInit = opts.init ?? true
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'ratoon e2e '))
+  // The real path, not whatever `TMP` spells: git answers with canonical paths, and a short 8.3
+  // name (`C:\Users\ADMINI~1\…`) would make every comparison against its output fail.
+  const tmp = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'ratoon e2e ')))
   const repo = path.join(tmp, 'repo')
   mkdirSync(path.join(repo, 'vendor', 'tiny'), { recursive: true })
 

@@ -1,7 +1,8 @@
 /**
- * Everything a lifecycle callback receives: where the slot is, which task it is doing, and which
- * base it was cut from. Facts only — running a command, reading a file or spawning a process is
- * the hook's own business (`node:fs`, `node:child_process`, or whatever the project installs).
+ * Everything a lifecycle callback receives: where the slot is, which task it is doing, and the
+ * branch this run revolves around. Facts only — running a command, reading a file or spawning a
+ * process is the hook's own business (`node:fs`, `node:child_process`, or whatever the project
+ * installs).
  *
  * While a callback runs the process cwd is the slot, so relative paths and `spawn` calls land
  * there without being told.
@@ -14,6 +15,10 @@ export interface HookContext {
   slotDir: string
   branch: string
   task: string
+  /**
+   * `start`: the ref the branch was cut from.
+   * `finish`: the branch the work is landing on — `--into`, or the main worktree's checked-out one.
+   */
   base: string
 }
 

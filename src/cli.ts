@@ -6,6 +6,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runMain } from 'citty'
 import { runAbandon } from './abandon.ts'
+import { flagSetOf, unknownFlagMessage } from './args.ts'
 import { PausedError } from './errors.ts'
 import { runFinish } from './finish.ts'
 import { runInit } from './init.ts'
@@ -29,19 +30,15 @@ process.stdout.on('error', discardBrokenPipe)
 process.stderr.on('error', discardBrokenPipe)
 
 export interface RatoonOptions {
-  /** base ref: starting point on start, rebase target on finish (finish still merges into main's HEAD) */
-  base: string
-  /** base ref was not given explicitly, discovered from the repository */
-  baseAuto: boolean
+  /** where a new task is cut from — `start` only, no other command declares it */
+  base?: string
   branchPrefix: string
+  /** `finish` only: the branch the work lands on; absent means the main worktree's checked-out one */
+  into?: string
 }
 
-/** Shared by the root command and every subcommand — see `hoistGlobalOptions` for why both. */
-export const sharedArgs = {
-  'base': {
-    type: 'string',
-    description: 'starting point / rebase target (finish still merges into the main worktree\'s checked-out branch)',
-  },
+/** Every command that turns a task name into a branch needs the prefix, so every command takes it. */
+const branchPrefixFlag = {
   'branch-prefix': {
     type: 'string',
     default: 'feature/',
@@ -79,21 +76,40 @@ export function validateTask(task: string, command: string): void {
 interface SharedArgValues {
   'base'?: string
   'branch-prefix'?: string
+  'into'?: string
   [key: string]: unknown
+}
+
+/**
+ * The part of citty's command context this file reads. Structural on purpose: `CommandContext<T>`
+ * is parameterised by each command's own args, so no two commands share one context type.
+ */
+interface RunContext {
+  /** argv after the command name — what the unknown-flag check inspects */
+  rawArgs: string[]
+  args: SharedArgValues
+  cmd: { args?: unknown, meta?: unknown }
 }
 
 function toOptions(args: SharedArgValues): RatoonOptions {
   return {
-    base: args.base ?? '',
-    baseAuto: args.base === undefined,
+    base: args.base,
     branchPrefix: args['branch-prefix'] ?? 'feature/',
+    into: args.into,
   }
 }
 
 /** Our own errors exit 1 with a single line; a pause (see `PausedError`) exits 2. */
-async function guard<T>(args: SharedArgValues, run: (opts: RatoonOptions) => Promise<T>): Promise<T> {
+async function guard<T>(ctx: RunContext, run: (opts: RatoonOptions) => Promise<T>): Promise<T> {
   try {
-    return await run(toOptions(args))
+    const unknown = unknownFlagMessage({
+      rawArgs: ctx.rawArgs,
+      args: ctx.cmd.args,
+      command: (ctx.cmd.meta as { name?: string } | undefined)?.name ?? 'ratoon',
+    })
+    if (unknown !== undefined)
+      throw new Error(unknown)
+    return await run(toOptions(ctx.args))
   }
   catch (err) {
     console.error(`\nratoon: ${err instanceof Error
@@ -116,10 +132,14 @@ const startCommand = defineCommand({
       required: true,
       description: 'kebab-case task name, e.g. add-bento-grid',
     },
-    ...sharedArgs,
+    base: {
+      type: 'string',
+      description: 'starting point for a new task',
+    },
+    ...branchPrefixFlag,
   },
-  run: ({ args }) => guard(args, async (opts) => {
-    const task: string = args.task
+  run: ctx => guard(ctx, async (opts) => {
+    const task: string = ctx.args.task
     validateTask(task, 'start')
     await runStart(opts, task)
   }),
@@ -128,7 +148,7 @@ const startCommand = defineCommand({
 const finishCommand = defineCommand({
   meta: {
     name: 'finish',
-    description: 'verify -> onFinish -> squash into one commit (title from -m) -> rebase base -> ff-merge -> park detached -> delete branch -> free slot',
+    description: 'verify -> onFinish -> squash into one commit (title from -m) -> rebase onto the target -> fast-forward it -> park detached -> delete branch -> free slot',
   },
   args: {
     task: {
@@ -141,12 +161,16 @@ const finishCommand = defineCommand({
       alias: 'm',
       description: 'title of the landing commit — the squash subject, like a PR title (required when the branch has commits)',
     },
-    ...sharedArgs,
+    into: {
+      type: 'string',
+      description: 'branch to land on, instead of the one checked out in the main worktree (e.g. a long-lived v2 branch)',
+    },
+    ...branchPrefixFlag,
   },
-  run: ({ args }) => guard(args, async (opts) => {
-    const task: string = args.task
+  run: ctx => guard(ctx, async (opts) => {
+    const task: string = ctx.args.task
     validateTask(task, 'finish')
-    await runFinish(opts, task, (args.message ?? '').trim())
+    await runFinish(opts, task, (ctx.args.message ?? '').trim())
   }),
 })
 
@@ -161,10 +185,10 @@ const abandonCommand = defineCommand({
       required: true,
       description: 'kebab-case task name, e.g. add-bento-grid',
     },
-    ...sharedArgs,
+    ...branchPrefixFlag,
   },
-  run: ({ args }) => guard(args, async (opts) => {
-    const task: string = args.task
+  run: ctx => guard(ctx, async (opts) => {
+    const task: string = ctx.args.task
     validateTask(task, 'abandon')
     await runAbandon(opts, task)
   }),
@@ -175,8 +199,8 @@ const listCommand = defineCommand({
     name: 'list',
     description: 'show the slot table (busy / task / checked-out branch)',
   },
-  args: sharedArgs,
-  run: ({ args }) => guard(args, opts => runList(opts)),
+  args: branchPrefixFlag,
+  run: ctx => guard(ctx, opts => runList(opts)),
 })
 
 const initCommand = defineCommand({
@@ -184,22 +208,7 @@ const initCommand = defineCommand({
     name: 'init',
     description: 'create the optional hook toolbox: hooks.ts, types and starter plugins (slots work without it)',
   },
-  args: {
-    force: {
-      type: 'boolean',
-      default: false,
-      description: 'removed — init only writes files that are missing (delete one to take a newer copy)',
-    },
-  },
-  run: ({ args }) => guard(args, () => {
-    if (args.force === true) {
-      throw new Error(
-        '--force was removed: init only writes files that are missing\n'
-        + 'to take a newer copy of a generated file, delete it and run init again.',
-      )
-    }
-    return runInit()
-  }),
+  run: ctx => guard(ctx, () => runInit()),
 })
 
 export const cli = defineCommand({
@@ -208,7 +217,6 @@ export const cli = defineCommand({
     version: version(),
     description: 'Parallel git worktrees for long-running tasks and agents',
   },
-  args: sharedArgs,
   subCommands: {
     init: initCommand,
     start: startCommand,
@@ -218,35 +226,38 @@ export const cli = defineCommand({
   },
 })
 
-const VALUE_FLAGS = new Set(
-  Object.entries(sharedArgs)
-    .filter(([, def]) => def.type === 'string')
-    .map(([name]) => name),
-)
+/** The command that declares `flag`, or `undefined` when none does. Reads the same definitions citty does. */
+function commandDeclaring(flag: string): string | undefined {
+  for (const [name, command] of Object.entries(cli.subCommands ?? {})) {
+    const def: unknown = command.args
+    if (typeof def !== 'object' || def === null)
+      continue
+    if (flagSetOf(def as ArgsDef).known.has(flag))
+      return name
+  }
+}
 
 /**
- * citty hands a subcommand everything *after* its name, so `ratoon --base trunk list` would drop
- * `--base` on the floor and fall back to cwd. Move leading options behind the subcommand so both
- * orders behave the same.
+ * Options follow the command: `ratoon start t --base X`, not `ratoon --base X start t`.
+ *
+ * citty parses what precedes the command name on the root command and never hands it down, so a
+ * leading option either vanishes into a value nobody reads or swallows the command name itself
+ * (`Unknown command X`). Both lie about what happened, so refuse the order instead of rewriting it.
  */
-export function hoistGlobalOptions(rawArgs: string[]): string[] {
-  let index = 0
-  while (index < rawArgs.length) {
-    const arg = rawArgs[index]!
-    if (arg === '--')
-      break
-    if (!arg.startsWith('-'))
-      break
-    if (!arg.includes('=') && VALUE_FLAGS.has(arg.replace(/^-+/, '')))
-      index++ // the value that follows the flag
-    index++
-  }
-  if (index === 0 || index >= rawArgs.length)
-    return rawArgs
-  return [
-    ...rawArgs.slice(index),
-    ...rawArgs.slice(0, index),
-  ]
+export function leadingOptionError(rawArgs: string[]): string | undefined {
+  const first = rawArgs[0]
+  if (first === undefined || !first.startsWith('-') || first === '--')
+    return undefined
+  if (/^--?(?:h|help|v|version)$/.test(first))
+    return undefined
+  const [name = '', inline] = first.split('=')
+  const owner = commandDeclaring(name.replace(/^-+/, ''))
+  if (owner === undefined)
+    return `${name} is not an option of any command`
+  return `${name} is a \`${owner}\` option and goes after the command\n`
+    + `try: ratoon ${owner} <task> ${first}${inline === undefined
+      ? ' <value>'
+      : ''}`
 }
 
 /**
@@ -270,9 +281,13 @@ export async function main(rawArgs = process.argv.slice(2)): Promise<void> {
     process.exitCode = 1
     return
   }
-  await runMain(cli, {
-    rawArgs: hoistGlobalOptions(rawArgs),
-  })
+  const misplaced = leadingOptionError(rawArgs)
+  if (misplaced) {
+    console.error(`\nratoon: ${misplaced}`)
+    process.exitCode = 1
+    return
+  }
+  await runMain(cli, { rawArgs })
 }
 
 // Entry guard: `nub src/cli.ts <cmd>` runs this file directly; importing it (tests) must not.
