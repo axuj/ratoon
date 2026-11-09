@@ -133,7 +133,6 @@ describe('taskNotes', () => {
     expect(written).toContain('## Left open')
     expect(written).toContain('commit in this slot only')
     expect(written).toContain('Not a changelog')
-    expect(written).not.toContain('- [ ]')
     // nothing lands in the worktree: no gitignore, no dirt, nothing to commit
     expect(existsSync(path.join(slotDir, 'TASK.md'))).toBe(false)
   })

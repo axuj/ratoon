@@ -107,7 +107,7 @@ describe('ratoon start', () => {
   it('reports a lifecycle as untouched when no plugin implements it', async () => {
     writeHooks(c, `export default [{ name: 'only-finish', onFinish() {} }]\n`)
     const result = await start(c, 'only-finish')
-    expect(hooksLine(result.stdout)).toBe('plugins : loaded (none)')
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (no hooks ran)')
   })
 
   it('says so when the hook file enables nothing, and points at the starters', async () => {

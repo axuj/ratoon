@@ -1,9 +1,5 @@
 # Git and the pool
 
-Commit in the slot, never in the repository's own working tree. Never run `finish` on your own
-initiative, and never delegate it to a subagent. Leave the task checked out in its slot until
-approval.
-
 `.ratoon/` is local state, not project content: `start` keeps it out of git with the single
 `.ratoon/*` rule in `.gitignore`. Never `git add` the pool or the state on your own; the config files
 stay local too unless the team whitelisted them.

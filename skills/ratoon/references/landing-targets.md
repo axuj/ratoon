@@ -1,7 +1,5 @@
 # Landing on another branch
 
-Never run `finish` without the user's approval — see SKILL.md, "Before anything".
-
 `finish --into <branch>` lands the work on a branch the main worktree does *not* have checked out —
 the shape of a long-lived second line, such as `v2` growing next to a shipping `main`. The task is
 squashed, rebased onto that branch, and the branch is fast-forwarded; the main worktree keeps its

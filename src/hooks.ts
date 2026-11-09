@@ -55,7 +55,8 @@ function hookFiles(facts: HookFacts): string[] {
 /**
  * The `plugins:` line every command prints. Three states all read as "nothing happened", and each
  * prints differently: no hooks file, a file that enables nothing, and plugins that do not implement
- * this lifecycle — the first two are what a user who just ran `init` is looking at.
+ * this lifecycle — the first two are what a user who just ran `init` is looking at. The last one
+ * must not read as "not loaded": the hooks file was imported fine.
  */
 export function describeHooks(present: boolean, ran: readonly string[], count: number): string {
   if (!present)
@@ -64,7 +65,7 @@ export function describeHooks(present: boolean, ran: readonly string[], count: n
     return 'loaded (no plugins)'
   return ran.length
     ? `loaded (${ran.join(', ')})`
-    : 'loaded (none)'
+    : 'loaded (no hooks ran)'
 }
 
 function stack(err: unknown): string {

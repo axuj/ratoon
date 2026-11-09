@@ -65,8 +65,8 @@ describe('ratoon finish', () => {
     expect(result.stdout).toContain('[1/4] verifying feature/empty-task in slot-0')
     expect(result.stdout).toContain('feature/empty-task is already on top of master')
     expect(result.stdout).toContain('[4/4] parking slot slot-0')
-    // taskNotes only implements onStart, so finish reports no plugins for that lifecycle
-    expect(hooksLine(result.stdout)).toBe('plugins : loaded (none)')
+    // taskNotes only implements onStart, so no hook runs for finish
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (no hooks ran)')
 
     expect(gitOut(c.repo, 'rev-parse', 'master')).toBe(before)
     expect(gitOut(c.repo, 'branch', '--list', 'feature/empty-task')).toBe('')
@@ -270,8 +270,8 @@ describe('ratoon finish', () => {
 
     const result = await finish('scratch-task')
     expect(result.status).toBe(0)
-    // taskNotes only implements onStart, so finish reports no plugins for that lifecycle
-    expect(hooksLine(result.stdout)).toBe('plugins : loaded (none)')
+    // taskNotes only implements onStart, so no hook runs for finish
+    expect(hooksLine(result.stdout)).toBe('plugins : loaded (no hooks ran)')
     expect(gitStatus(slotDir(c, 'slot-0'))).toEqual([])
     expect(slotState()).toMatchObject({ busy: false })
   })

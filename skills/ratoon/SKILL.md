@@ -13,7 +13,8 @@ description: Work on several tasks at once in parallel git worktrees, or land a 
    as you like. `wip`, `try this`, `ok that was dumb`, `拆了下 skill，门控挪前面了`,
    `框和警告删了，进度交给 commit`. Not `wip: add plugin command support`. They are squashed away
    and never reach the base.
-3. Never run `finish` (or delegate it) until the user explicitly says to. Show the changes first.
+3. Never run `finish` (or delegate it) until the user explicitly says to. Show the changes first
+   and leave the task checked out in its slot until then.
 
 ## Workflow
 
@@ -43,7 +44,6 @@ actual path from `ratoon list` or from `start` output instead of assuming it.
 ## Rules that are easy to miss
 
 - One task per slot. The task name *is* the branch, so two agents cannot use the same name.
-- Never leave dirt: `finish` refuses a dirty tree and the next `start` runs `git clean -fd`.
 - A change is not landed until `finish` succeeds.
 
 ## Read these when you need them
@@ -52,7 +52,7 @@ actual path from `ratoon list` or from `start` output instead of assuming it.
 - `references/landing-targets.md` — landing on another branch with `finish --into <branch>`, and its
   two git limits.
 - `references/git-and-pool.md` — `.gitignore`, `poolPath`, sharing hook files, hooks are read from
-  the main working tree, scope tools off `.ratoon/`, conflict pause and exit 2.
+  the main working tree, scope tools off `.ratoon/`, dirty trees, conflict pause and exit 2.
 - `references/handoff-sheet.md` — how to write `TASK.md`, and what to read when a subagent takes over.
 - `references/subagents.md` — what to tell a subagent with an isolated context.
 - Writing a plugin — read the files `ratoon init` wrote: `.ratoon/types.ts` is the contract,

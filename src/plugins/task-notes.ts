@@ -8,7 +8,7 @@ export type TaskNotesContext = Pick<HookContext, 'task' | 'branch' | 'slotDir' |
 export interface TaskNotesOptions {
   /** Filename under `<root>/.state/<slot>/`. Default `TASK.md`. */
   file?: string
-  /** What to write in `onStart`. Default: a short handoff sheet with no checkboxes. */
+  /** What to write in `onStart`. Default: a short handoff sheet. */
   template?: (ctx: TaskNotesContext) => string
 }
 
