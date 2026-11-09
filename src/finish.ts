@@ -193,7 +193,6 @@ export async function runFinish(opts: RatoonOptions, task: string, title: string
   const layout = await layoutOf()
   const { root, mainDir } = layout
   const branch = `${opts.branchPrefix}${task}`
-  const target = await resolveLandingTarget(opts, mainDir)
 
   try {
     // Reading the pool needs no lock: nothing is shared with another slot, and the only write at
@@ -208,6 +207,10 @@ export async function runFinish(opts: RatoonOptions, task: string, title: string
     }
     if (!existsSync(slot.path))
       throw new Error(`worktree directory ${slot.path} does not exist`)
+
+    // Resolved after the slot lookup: a task no slot holds is answered first, even when the main
+    // worktree is detached — CI checks out tags that way.
+    const target = await resolveLandingTarget(opts, mainDir)
 
     // A PR cannot be merged without a title, and neither can this: the landing commit's message is
     // the caller's words, so it is demanded *before* anything is touched — no hooks, no squash, no
