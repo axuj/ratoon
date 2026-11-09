@@ -1,7 +1,8 @@
 name: Release
 
-# Publishes the `ratoon` package when a `v*` tag is pushed. `workflow_dispatch`
-# only does a dry run (`npm pack --dry-run`); this workflow never creates tags.
+# Publishes the `ratoon` package and its GitHub Release notes when a `v*` tag
+# is pushed. `workflow_dispatch` only does a dry run (`npm pack --dry-run`);
+# this workflow never creates tags.
 #
 # Auth is OIDC (npm trusted publishing): no NPM_TOKEN secret exists. The trusted
 # publisher on npmjs.com must list this repository (`axuj/ratoon`) and this
@@ -9,8 +10,7 @@ name: Release
 #
 # The first release of a brand-new package cannot be trusted-published (the
 # package page does not exist yet), so ratoon@0.1.0 was bootstrapped manually
-# from a workstation. Configure the trusted publisher once the page exists;
-# tag releases fail until it is in place.
+# from a workstation; tagged releases publish through the trusted publisher.
 #
 # The registry comes from `publishConfig` in package.json, so `npm publish` is
 # not given a `--registry` flag.
@@ -22,8 +22,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  id-token: write
+  contents: write # changelogithub creates the GitHub Release
+  id-token: write # npm trusted publishing
 
 concurrency:
   group: release
@@ -35,6 +35,8 @@ jobs:
     steps:
       # Must precede setup-nub: the action resolves the Node pin and the lockfile from the checkout.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # changelogithub needs the tag history for its compare range
 
       # Drop-in for actions/setup-node: installs the nub CLI, provisions Node, caches the store.
       # `engines.node` is a range (`>=26`), so the exact version comes from `.node-version`.
@@ -66,3 +68,12 @@ jobs:
       - name: Publish
         if: github.event_name == 'push'
         run: npm publish --access public --provenance
+
+      # After publish, so a failed publish leaves no empty Release behind.
+      # changelogithub 15+ parses this repo's gitmoji-prefixed commits; 0.12
+      # renders "No significant changes" for them.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npx --yes changelogithub@15 --to "$GITHUB_REF_NAME"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
