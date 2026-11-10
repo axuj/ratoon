@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { PausedError } from './errors.ts'
 import { hookFiles } from './hooks.ts'
 import { layoutOf } from './layout.ts'
+import { renderPoolTable, slotViews } from './pool-table.ts'
 import { scanPool } from './state.ts'
 
 let diagnostics: string[] = []
@@ -93,14 +94,13 @@ export async function pluginCommands(reserved: readonly string[]): Promise<SubCo
   const ctx: PluginContext = {
     rootDir: layout.root,
     mainDir: layout.mainDir,
-    slots: pool.map(slot => ({
-      dir: slot.dir,
-      path: slot.path,
-      task: slot.task,
-      branch: slot.branch,
-      worktree: slot.worktree,
-      missing: slot.missing,
-    })),
+    slots: slotViews(pool),
+    renderPool: columns => renderPoolTable({
+      root: layout.root,
+      mainDir: layout.mainDir,
+      configuredBy: layout.configuredBy,
+      pool,
+    }, columns),
   }
 
   const taken = new Set(reserved)

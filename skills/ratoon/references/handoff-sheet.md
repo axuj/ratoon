@@ -2,8 +2,9 @@
 
 With `ratoon init` in place, the starter `taskNotes()` plugin writes
 `<pool>/.state/<slot>/TASK.md` at `start` — `start` prints the full path, and `ratoon task list`
-prints it again for every active task, so use one of those instead of assuming the default pool
-location. It is a plain file the user can open without an agent session, and the one surface a
+lists it for every slot in the same table as `ratoon list`, marking a parked slot's leftover sheet
+`(last task)`. Use one of those instead of assuming the default pool location. It is a plain file
+the user can open without an agent session, and the one surface a
 subagent with an isolated context can still reach. It holds Goal, Findings and Left open. Without
 the plugin there is no sheet — say what changed instead of pointing at a file that does not exist.
 

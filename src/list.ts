@@ -1,8 +1,7 @@
 import type { RatoonOptions } from './cli.ts'
 import { layoutOf } from './layout.ts'
-import { isFree, scanPool } from './state.ts'
-
-export type SlotState = 'busy' | 'free' | 'unknown'
+import { renderPoolTable } from './pool-table.ts'
+import { scanPool } from './state.ts'
 
 /**
  * The pool is git's worktree list plus the directories on disk — never a document. A directory git
@@ -13,74 +12,27 @@ export async function runList(opts: RatoonOptions): Promise<void> {
   const layout = await layoutOf()
   const pool = await scanPool(layout.root, layout.mainDir)
 
-  const origin = layout.configuredBy.replace(/^file:/, '')
-  const poolLine = `pool: ${layout.root} · repo: ${layout.mainDir}`
-  if (origin) {
-    console.log(`${poolLine}\n  pool path set in ${origin}\n`)
-  }
-  else {
-    console.log(`${poolLine}\n`)
-  }
-
-  if (pool.length === 0) {
-    console.log(`no slots yet in ${layout.root}`)
-    return
-  }
-
-  const rows = pool.map((slot) => {
-    const state: SlotState = isFree(slot)
-      ? 'free'
-      : slot.worktree && !slot.missing
-        ? 'busy'
-        : 'unknown'
-    const task = slot.task || taskOf(slot.branch, opts.branchPrefix)
-    const head = slot.missing
-      ? '(missing)'
-      : slot.worktree
-        ? (slot.branch || '(detached)')
-        : '(not a git worktree)'
-    return {
-      state,
-      cells: [
-        slot.dir,
-        state,
-        task || '—',
-        head,
-        slot.path,
-      ],
-    }
-  })
-
-  const header = [
-    'SLOT',
-    'STATUS',
-    'TASK',
-    'HEAD',
-    'DIR',
-  ]
-  const widths = header.map((title, index) =>
-    Math.max(title.length, ...rows.map(row => row.cells[index]!.length)))
-
-  const line = (row: string[]): string =>
-    row.map((value, index) => value.padEnd(widths[index]!)).join('  ')
-  console.log(line(header))
-  console.log(widths.map(width => '-'.repeat(width)).join('  '))
-  for (const row of rows)
-    console.log(line(row.cells))
-
-  const count = (state: SlotState): number => rows.filter(row => row.state === state).length
-  const parts = [`${rows.length} slot(s)`, `${count('busy')} busy`]
-  if (count('unknown') > 0)
-    parts.push(`${count('unknown')} unknown`)
-  parts.push(count('free') === rows.length
-    ? 'all free'
-    : `${count('free')} free`)
-  console.log(`\n${parts.join(' · ')}`)
-}
-
-/** `feature/docs` → `docs`, without assuming anything about a branch outside the prefix. */
-function taskOf(branch: string, prefix: string): string {
-  return branch.startsWith(prefix)
-    ? branch.slice(prefix.length)
-    : ''
+  renderPoolTable(
+    {
+      root: layout.root,
+      mainDir: layout.mainDir,
+      configuredBy: layout.configuredBy,
+      pool,
+      branchPrefix: opts.branchPrefix,
+    },
+    [
+      {
+        header: 'HEAD',
+        cell: slot => slot.missing
+          ? '(missing)'
+          : slot.worktree
+            ? (slot.branch || '(detached)')
+            : '(not a git worktree)',
+      },
+      {
+        header: 'DIR',
+        cell: slot => slot.path,
+      },
+    ],
+  )
 }

@@ -58,40 +58,28 @@ export function taskNotes(options: TaskNotesOptions = {}): Plugin {
   }
 
   /** `ratoon task list` — the sheet's filename is this plugin's own choice, so the command is too. */
-  const commands: NonNullable<Plugin['commands']> = ({ rootDir, slots }) => ({
+  const commands: NonNullable<Plugin['commands']> = () => ({
     task: {
       description: `handoff sheets (${file})`,
       subCommands: {
         list: {
-          description: `show where each ${file} lives`,
-          run: () => {
-            const rows = slots
-              .filter(slot => (slot.task || slot.branch) && !slot.missing)
-              .map((slot) => {
+          description: `show where every slot's ${file} lives`,
+          run: ({ rootDir, renderPool }) => renderPool([
+            {
+              header: 'NOTES',
+              cell: (slot) => {
                 const notes = statePath({ rootDir, slotDir: slot.path }, file)
-                return [
-                  slot.task || slot.branch,
-                  slot.dir,
-                  existsSync(notes)
-                    ? notes
-                    : `${notes}  (missing)`,
-                ]
-              })
-            if (rows.length === 0) {
-              console.log(`no active tasks in ${rootDir}`)
-              return
-            }
-
-            const header = ['TASK', 'SLOT', 'NOTES']
-            const widths = header.map((title, index) =>
-              Math.max(title.length, ...rows.map(row => row[index]!.length)))
-            const line = (row: string[]): string =>
-              row.map((value, index) => value.padEnd(widths[index]!)).join('  ')
-            console.log(line(header))
-            console.log(widths.map(width => '-'.repeat(width)).join('  '))
-            for (const row of rows)
-              console.log(line(row))
-          },
+                if (!existsSync(notes)) {
+                  return slot.state === 'busy'
+                    ? `${notes}  (missing)`
+                    : '—'
+                }
+                return slot.state === 'busy'
+                  ? notes
+                  : `${notes}  (last task)`
+              },
+            },
+          ]),
         },
       },
     },

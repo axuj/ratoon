@@ -32,6 +32,14 @@ export interface SlotView {
   branch: string
   worktree: boolean
   missing: boolean
+  /** the busy / free / unknown label `ratoon list` prints */
+  state: 'busy' | 'free' | 'unknown'
+}
+
+/** One extra column a plugin appends to the shared pool table. */
+export interface PoolColumn {
+  header: string
+  cell: (slot: SlotView) => string
 }
 
 /** Facts available when a plugin declares its commands, and again when one of them runs. */
@@ -42,6 +50,12 @@ export interface PluginContext {
   mainDir: string
   /** a snapshot of every slot, in pool order */
   slots: readonly SlotView[]
+  /**
+   * Print the pool in exactly the shape `ratoon list` uses: header, one row per slot (busy, free
+   * and unknown alike), then the summary. `columns` only append cells, so a plugin's listing
+   * cannot drift from the engine's.
+   */
+  renderPool: (columns: readonly PoolColumn[]) => void
 }
 
 export type CommandArgs = Record<string, string | number | boolean | string[] | undefined>
@@ -100,7 +114,8 @@ export interface Plugin {
    * Commands this plugin adds to `ratoon`. Called when the CLI builds its command tree; every
    * key becomes a top-level subcommand. A name already used by the engine or an earlier plugin
    * is skipped, with a line on stderr. Each command declares only the flags it reads; `run`
-   * receives the parsed args and a read-only pool snapshot instead of a slot context.
+   * receives the parsed args and a read-only pool snapshot instead of a slot context. To print a
+   * listing, pass extra columns to `renderPool` — it renders the same table `ratoon list` uses.
    */
   commands?: (ctx: PluginContext) => PluginCommands | Promise<PluginCommands>
 }

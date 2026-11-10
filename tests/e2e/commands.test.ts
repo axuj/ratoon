@@ -2,7 +2,7 @@ import type { Repo } from '../helpers/repo.ts'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { makeRepo, ratoon, start, writeHooks } from '../helpers/repo.ts'
+import { finish, makeRepo, ratoon, start, writeHooks } from '../helpers/repo.ts'
 
 let repo: Repo | undefined
 
@@ -14,6 +14,17 @@ afterEach(() => {
 async function fixture(): Promise<Repo> {
   repo = await makeRepo()
   return repo
+}
+
+/** The three columns every pool listing shares, regardless of the extra columns a command adds. */
+function sharedColumns(out: string): string[] {
+  return out.split('\n')
+    .filter(line => /^slot-\d/.test(line))
+    .map(line => line.trim().split(/\s{2,}/).slice(0, 3).join(' | '))
+}
+
+function summary(out: string): string | undefined {
+  return out.trim().split('\n').at(-1)
 }
 
 describe('plugin commands', () => {
@@ -28,15 +39,19 @@ describe('plugin commands', () => {
     const group = await ratoon(['task', '--help'], { cwd: r.repo })
     expect(group.status, group.stderr).toBe(0)
     expect(group.stdout).toContain('list')
-    expect(group.stdout).toContain('show where each TASK.md lives')
+    expect(group.stdout).toContain(`show where every slot's TASK.md lives`)
   })
 
-  it('reports an empty pool before the first task', async () => {
+  it('renders the pool table when no slots exist yet', async () => {
     const r = await fixture()
 
     const out = await ratoon(['task', 'list'], { cwd: r.repo })
     expect(out.status, out.stderr).toBe(0)
-    expect(out.stdout).toContain('no active tasks')
+    expect(out.stdout).toContain('SLOT')
+    expect(out.stdout).toContain('STATUS')
+    expect(out.stdout).toContain('NOTES')
+    expect(out.stdout).toContain('0 slot(s)')
+    expect(out.stdout).not.toContain('no active tasks')
   })
 
   it('shows where the handoff sheet of a running task lives', async () => {
@@ -48,6 +63,47 @@ describe('plugin commands', () => {
     expect(out.stdout).toContain('add-banner')
     expect(out.stdout).toContain('slot-0')
     expect(out.stdout).toContain(path.join('.state', 'slot-0', 'TASK.md'))
+  })
+
+  it('lists every busy slot, not just one', async () => {
+    const r = await fixture()
+    expect((await start(r, 'alpha')).status).toBe(0)
+    expect((await start(r, 'beta')).status).toBe(0)
+
+    const out = await ratoon(['task', 'list'], { cwd: r.repo })
+    expect(out.status, out.stderr).toBe(0)
+    expect(out.stdout).toMatch(/slot-0\s+busy\s+alpha/)
+    expect(out.stdout).toMatch(/slot-1\s+busy\s+beta/)
+    expect(out.stdout).toContain('2 slot(s) · 2 busy · 0 free')
+  })
+
+  it('still lists a slot after its task has landed', async () => {
+    const r = await fixture()
+    expect((await start(r, 'alpha')).status).toBe(0)
+    expect((await finish(r, 'alpha', ['-m', 'feat: alpha'])).status).toBe(0)
+
+    const out = await ratoon(['task', 'list'], { cwd: r.repo })
+    expect(out.status, out.stderr).toBe(0)
+    expect(out.stdout).toMatch(/slot-0\s+free/)
+    expect(out.stdout).toContain(path.join('.state', 'slot-0', 'TASK.md'))
+    expect(out.stdout).toContain('(last task)')
+  })
+
+  it('uses the same rows, status labels and summary as ratoon list', async () => {
+    const r = await fixture()
+    expect((await start(r, 'alpha')).status).toBe(0)
+    expect((await finish(r, 'alpha', ['-m', 'feat: alpha'])).status).toBe(0)
+    expect((await start(r, 'beta')).status).toBe(0)
+
+    const pool = await ratoon(['list'], { cwd: r.repo })
+    const notes = await ratoon(['task', 'list'], { cwd: r.repo })
+    expect(pool.status, pool.stderr).toBe(0)
+    expect(notes.status, notes.stderr).toBe(0)
+
+    expect(sharedColumns(notes.stdout)).toEqual(sharedColumns(pool.stdout))
+    expect(summary(notes.stdout)).toBe(summary(pool.stdout))
+    expect(notes.stdout).toContain('NOTES')
+    expect(pool.stdout).toContain('HEAD')
   })
 
   it('uses the filename the plugin was configured with', async () => {

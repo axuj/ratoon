@@ -30,8 +30,9 @@ description: Work on several tasks at once in parallel git worktrees, or land a 
    leaves that worktree untouched.
 5. `ratoon abandon <task>` throws the work away and parks the slot.
 
-`ratoon list` shows the pool. `ratoon task list` shows where each active task's handoff sheet is;
-it comes from `taskNotes()`, which `init` enables in `.ratoon/hooks.ts` by default.
+`ratoon list` shows the pool. `ratoon task list` shows the same table with a `NOTES` column for
+every slot's handoff sheet; it comes from `taskNotes()`, which `init` enables in `.ratoon/hooks.ts`
+by default.
 `ratoon <command> --help` is the reference for flags.
 
 ## The tool in one paragraph

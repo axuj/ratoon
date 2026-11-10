@@ -26,10 +26,13 @@ function list(extra: string[] = []) {
 }
 
 describe('ratoon list', () => {
-  it('says so when the pool is empty', async () => {
+  it('renders the usual table when the pool is empty', async () => {
     const result = await list()
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain(`no slots yet in ${c.pool}`)
+    expect(result.stdout).toContain('SLOT')
+    expect(result.stdout).toContain('STATUS')
+    expect(result.stdout).toContain('0 slot(s)')
+    expect(result.stdout).not.toContain('no slots yet')
   })
 
   it('renders a table with status, task and checked-out branch', async () => {
@@ -77,14 +80,14 @@ describe('ratoon list', () => {
     expect(result.stdout).toContain(`pool: ${realpathSync.native(c.pool)}`)
   })
 
-  it('lists a repository that never ran init as having no slots', async () => {
+  it('lists a repository that never ran init as an empty table', async () => {
     const outside = path.join(c.tmp, 'outside')
     mkdirSync(outside, { recursive: true })
     gitOut(outside, 'init', '-b', 'master')
 
     const result = await ratoon(['list'], { cwd: outside })
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('no slots yet')
+    expect(result.stdout).toContain('0 slot(s)')
     expect(result.stdout).toContain(path.join(outside, '.ratoon', 'worktrees'))
   })
 
