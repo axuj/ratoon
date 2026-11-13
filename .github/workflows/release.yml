@@ -71,7 +71,8 @@ jobs:
 
       # After publish, so a failed publish leaves no empty Release behind.
       # changelogithub 15+ parses this repo's gitmoji-prefixed commits; 0.12
-      # renders "No significant changes" for them.
+      # renders "No significant changes" for them. Its type categories live in
+      # changelogithub.config.ts.
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         run: npx --yes changelogithub@15 --to "$GITHUB_REF_NAME"
