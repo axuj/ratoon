@@ -44,12 +44,16 @@ ratoon init                         optional: generate the hook toolbox
 **For an agent** — the workflow rules live in the skill, not in `--help`:
 
 ```bash
-npx skills add axuj/ratoon --skill ratoon           # default branch
-npx skills add axuj/ratoon@v0.2.1 --skill ratoon    # same version as your CLI
+npx skills add axuj/ratoon --skill ratoon -g        # global: a slot is a separate worktree
+npx skills add axuj/ratoon@v0.2.1 --skill ratoon -g # same version as your CLI
 ```
+
+Install it globally. A slot is a worktree cut from a commit, so a project-level install reaches the
+agent only when it is committed — an untracked one sits in the main tree and in no slot.
 
 Already depend on ratoon in the project? The same `SKILL.md` ships in the npm tarball, so
 `npx skills experimental_sync -y` links it from `node_modules` instead of fetching from GitHub.
+That is project-level too, with the same caveat: commit the link, or install globally instead.
 
 **Everyone** — the CLI, then a first task:
 

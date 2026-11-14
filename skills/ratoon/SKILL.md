@@ -57,6 +57,6 @@ actual path from `ratoon list` or from `start` output instead of assuming it.
 - `references/git-and-pool.md` — `.gitignore`, `poolPath`, sharing hook files, hooks are read from
   the main working tree, scope tools off `.ratoon/`, dirty trees, conflict pause and exit 2.
 - `references/handoff-sheet.md` — how to write `TASK.md`, and what to read when a subagent takes over.
-- `references/subagents.md` — what to tell a subagent with an isolated context.
+- `references/dispatch.md` — what to tell a subagent with an isolated context.
 - Writing a plugin — read the files `ratoon init` wrote: `.ratoon/types.ts` is the contract,
   `.ratoon/hooks.ts` is the `Plugin[]` to edit, `.ratoon/plugins/` holds editable examples.

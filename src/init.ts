@@ -197,7 +197,7 @@ Done. Everything here is optional — \`ratoon start\` already works in this rep
 Next steps:
   1. edit .ratoon/hooks.ts — starter plugins live in .ratoon/plugins/ (taskNotes is on; npmInstall is opt-in)
   2. ratoon start <task>            # pool: ${pool}
-  3. npx skills add axuj/ratoon --skill ratoon   # give your agent the workflow rules
+  3. npx skills add axuj/ratoon --skill ratoon -g   # global: a slot is a separate worktree
 
 @types/node is not installed: an editor shows TS2688 here, \`ratoon start\` does not care.
 For completions while writing plugins: \`cd .ratoon && npm i\`.
