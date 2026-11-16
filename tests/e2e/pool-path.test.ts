@@ -183,4 +183,35 @@ describe('a pool under a base directory', () => {
     expect(removed.stderr).toContain('git still has ratoon slots outside')
     expect(readFileSync(path.join(c.repo, '.gitignore'), 'utf8')).toBe('node_modules/\n')
   })
+
+  it('treats the old 0.3.x default as an ordinary base, and refuses an old slot left in it', async () => {
+    // `.ratoon/worktrees` used to *be* the pool. It is now a base like any other, so the repository
+    // mirrors itself one level deeper instead of picking up the slots that are already there.
+    configure('.ratoon/worktrees')
+    const first = await start(c, 'alpha')
+    expect(first.status, first.stderr).toBe(0)
+    const mirrored = poolFor(path.join(c.repo, '.ratoon', 'worktrees'))
+    expect(existsSync(path.join(mirrored, 'slot-0', '.git'))).toBe(true)
+    expect(existsSync(path.join(c.repo, '.ratoon', 'worktrees', 'slot-0'))).toBe(false)
+
+    // An upgrade looks the other way round: a 0.3.x slot sits directly under the base, holding a
+    // branch. It is outside the mirrored pool now, so start must stop instead of stranding it.
+    const oldSlot = path.join(c.repo, '.ratoon', 'worktrees', 'slot-0')
+    gitOut(c.repo, 'worktree', 'add', '-q', '-b', 'feature/legacy', oldSlot, 'master')
+    const second = await start(c, 'beta')
+    expect(second.status).toBe(1)
+    expect(second.stderr).toContain('git still has ratoon slots outside')
+  })
+
+  it('writes the ignore rule when the pool lives inside the repository', async () => {
+    configure('.ratoon/pool')
+    const result = await start(c, 'alpha')
+    expect(result.status, result.stderr).toBe(0)
+
+    // the pool mirrors itself under the base, and one committed rule keeps the whole tree out
+    expect(existsSync(path.join(poolFor(path.join(c.repo, '.ratoon', 'pool')), 'slot-0', '.git'))).toBe(true)
+    expect(readFileSync(path.join(c.repo, '.gitignore'), 'utf8')).toContain('.ratoon/*')
+    expect(result.stdout).toContain('commit it so the pool stays out of git')
+    expect(gitOut(c.repo, 'status', '--porcelain', '-uall')).not.toContain('slot-')
+  })
 })

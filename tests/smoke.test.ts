@@ -1,6 +1,8 @@
+import type { ArgsDef } from 'citty'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { firstUnknownFlag, flagSetOf } from '../src/args.ts'
 import { builtInCommands, leadingOptionError, nodeVersionError } from '../src/cli.ts'
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
@@ -110,6 +112,43 @@ describe('unknown options', () => {
     // no flag complaint: it got as far as looking for the task, which does not exist here
     expect(out.stderr).not.toContain('unknown option')
     expect(out.stderr).toContain('no slot is working on task')
+  })
+})
+
+/** The definition the CLI actually runs with — the point is that there is only one. */
+function flagsOf(command: string) {
+  const sub = (builtInCommands as unknown as Record<string, { args: ArgsDef }>)[command]!
+  return flagSetOf(sub.args)
+}
+
+describe('unknown flag check', () => {
+  it('reads the whitelist off the command, so a flag removed there is rejected', () => {
+    expect(firstUnknownFlag(['t', '--base', 'master'], flagsOf('start'))).toBeUndefined()
+    expect(firstUnknownFlag(['t', '--into', 'v2'], flagsOf('finish'))).toBeUndefined()
+    // finish does not declare --base: it is a start flag
+    expect(firstUnknownFlag(['t', '--base', 'master'], flagsOf('finish'))).toBe('--base')
+  })
+
+  it('accepts every spelling citty itself accepts', () => {
+    const start = flagsOf('start')
+    const accepted = [
+      ['--branch-prefix', 'x'],
+      ['--branchPrefix', 'x'],
+      ['-h'],
+      ['--help'],
+      ['--version'],
+    ]
+    for (const argv of accepted)
+      expect(firstUnknownFlag(argv, start), argv.join(' ')).toBeUndefined()
+    // `--no-x` is not a spelling citty knows: it lands as its own key, so `x` keeps its default
+    expect(firstUnknownFlag(['--no-into'], flagsOf('finish'))).toBe('--no-into')
+  })
+
+  it('never reads a value as a flag', () => {
+    const finish = flagsOf('finish')
+    expect(firstUnknownFlag(['t', '-m', '--into'], finish)).toBeUndefined()
+    expect(firstUnknownFlag(['t', '--message=--into'], finish)).toBeUndefined()
+    expect(firstUnknownFlag(['t', '--', '--whatever'], finish)).toBeUndefined()
   })
 })
 

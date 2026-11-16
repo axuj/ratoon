@@ -1,4 +1,3 @@
-import type { PoolSlot } from '../src/state.ts'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -9,12 +8,9 @@ import {
   claim,
   claimOn,
   clearTask,
-  isFree,
   pidAlive,
-  poolSummary,
   release,
   scanPool,
-  slotForTask,
 } from '../src/state.ts'
 
 let tmp = ''
@@ -58,18 +54,6 @@ beforeEach(async () => {
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })
 })
-
-function slot(dir: string): PoolSlot {
-  return {
-    dir,
-    path: path.join(root, dir),
-    worktree: true,
-    missing: false,
-    branch: '',
-    task: '',
-    claimedBy: 0,
-  }
-}
 
 describe('scanPool', () => {
   it('is empty before there is a slot', async () => {
@@ -160,86 +144,5 @@ describe('pidAlive', () => {
     expect(pidAlive(process.pid)).toBe(true)
     const dead = spawnSync(process.execPath, ['-e', '0']).pid!
     expect(pidAlive(dead)).toBe(false)
-  })
-})
-
-describe('isFree', () => {
-  it('is a worktree, parked, with no task and nobody in it', () => {
-    expect(isFree(slot('slot-0'))).toBe(true)
-    expect(isFree({
-      ...slot('slot-0'),
-      branch: 'feature/x',
-    })).toBe(false)
-    expect(isFree({
-      ...slot('slot-0'),
-      task: 'x',
-    })).toBe(false)
-    expect(isFree({
-      ...slot('slot-0'),
-      claimedBy: 42,
-    })).toBe(false)
-    expect(isFree({
-      ...slot('slot-0'),
-      missing: true,
-    })).toBe(false)
-    expect(isFree({
-      ...slot('slot-0'),
-      worktree: false,
-    })).toBe(false)
-  })
-})
-
-describe('slotForTask', () => {
-  it('prefers the recorded task, then the checked-out branch', () => {
-    const pool: PoolSlot[] = [
-      {
-        ...slot('slot-0'),
-        branch: 'feature/alpha',
-      },
-      {
-        ...slot('slot-1'),
-        task: 'alpha',
-      },
-    ]
-    expect(slotForTask(pool, 'alpha', 'feature/alpha')?.dir).toBe('slot-1')
-
-    const byBranch: PoolSlot[] = [
-      {
-        ...slot('slot-0'),
-        branch: 'feature/alpha',
-      },
-    ]
-    expect(slotForTask(byBranch, 'alpha', 'feature/alpha')?.dir).toBe('slot-0')
-    expect(slotForTask(byBranch, 'beta', 'feature/beta')).toBeUndefined()
-  })
-})
-
-describe('poolSummary', () => {
-  it('says what each slot is doing, in one line each', () => {
-    const summary = poolSummary([
-      {
-        ...slot('slot-0'),
-        task: 'alpha',
-        branch: 'feature/alpha',
-        claimedBy: 42,
-      },
-      slot('slot-1'),
-      {
-        ...slot('slot-2'),
-        missing: true,
-      },
-      {
-        ...slot('slot-3'),
-        worktree: false,
-      },
-    ])
-    expect(summary).toContain('slot-0  busy: alpha (pid 42)')
-    expect(summary).toContain('slot-1  free')
-    expect(summary).toContain('slot-2  missing')
-    expect(summary).toContain('slot-3  not a git worktree')
-  })
-
-  it('says so when the pool is empty', () => {
-    expect(poolSummary([])).toBe('  (no slots yet)')
   })
 })

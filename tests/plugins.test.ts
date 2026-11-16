@@ -8,6 +8,17 @@ import { npmInstall } from '../src/plugins/npm-install.ts'
 import { defaultManagers, detectManager, statePath } from '../src/plugins/shared.ts'
 import { taskNotes } from '../src/plugins/task-notes.ts'
 
+// The failing installs below deliberately run a real command in a slot whose package.json is
+// broken, so the manager reports the parse error on stderr. Capture that output instead of letting
+// it inherit the test process's stderr: the tests only read the exit status and the message the
+// plugin throws, and a passing run should not print a stack trace.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  const quiet = ((command: unknown, options: unknown) =>
+    actual.spawnSync(command as string, { ...(options as object), stdio: 'pipe' })) as typeof actual.spawnSync
+  return { ...actual, spawnSync: quiet }
+})
+
 let tmp = ''
 let rootDir = ''
 let slotDir = ''
