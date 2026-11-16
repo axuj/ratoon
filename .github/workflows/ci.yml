@@ -22,8 +22,11 @@ jobs:
 
       # Drop-in for actions/setup-node: installs the nub CLI, provisions Node, caches the store.
       # The exact version lives in `.node-version`; `engines.node` is only a range (`>=26`).
+      # `devEngines.packageManager` is a range, so pin the pipeline's nub here: `latest` could
+      # change lockfile behaviour under `--frozen-lockfile` overnight.
       - uses: nubjs/setup-nub@v0
         with:
+          nub-version: 0.11.1
           node-version-file: .node-version
 
       - run: nub install --frozen-lockfile
