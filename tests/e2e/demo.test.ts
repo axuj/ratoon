@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { disposeDir, gitOut, ratoon } from '../helpers/repo.ts'
+import { poolForRepo } from '../../src/layout.ts'
+import { disposeDir, disposePool, gitOut, ratoon } from '../helpers/repo.ts'
 
 const DEMO = fileURLToPath(new URL('../../scripts/demo.ts', import.meta.url))
 
@@ -14,7 +15,7 @@ function demo(args: string[]): { status: number, stdout: string, stderr: string 
   return { status: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
 }
 
-/** ratoon installs into the repository; the ignored pool sits inside it. */
+/** ratoon installs into the repository; the pool sits outside it. */
 const SCAFFOLD = [
   '.ratoon/hooks.ts',
   '.ratoon/types.ts',
@@ -31,18 +32,20 @@ let created = { status: -1, stdout: '', stderr: '' }
 beforeAll(async () => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'ratoon demo '))
   repo = dir
-  pool = path.join(repo, '.ratoon', 'worktrees')
+  pool = poolForRepo(repo)
   created = demo(['--dir', dir])
   expect(created.status, `stdout:\n${created.stdout}\nstderr:\n${created.stderr}`).toBe(0)
 }, 120_000)
 
 afterAll(() => {
-  if (dir)
+  if (dir) {
+    disposePool(poolForRepo(dir))
     disposeDir(dir)
+  }
 })
 
 describe('ratoon demo', () => {
-  it('installs ratoon into the repository and puts an ignored pool inside it', () => {
+  it('installs ratoon into the repository and puts the pool outside it', () => {
     for (const rel of SCAFFOLD)
       expect(existsSync(path.join(repo, rel)), rel).toBe(true)
 
@@ -72,8 +75,9 @@ describe('ratoon demo', () => {
       expect(existsSync(path.join(repo, rel)), rel).toBe(true)
     }
     expect(readFileSync(path.join(repo, 'index.js'), 'utf8')).toContain('from \'tiny\'')
-    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n\n.ratoon/*\n')
-    expect(gitOut(repo, 'status', '--porcelain', '-uall')).not.toContain('.ratoon/worktrees')
+    // the demo brings no ignore rule: its pool lives outside the project
+    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n')
+    expect(gitOut(repo, 'status', '--porcelain', '-uall')).toBe('')
   })
 
   it('prints commands against this checkout\'s CLI, not a global install', () => {

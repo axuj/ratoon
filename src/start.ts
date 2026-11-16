@@ -5,7 +5,7 @@ import path from 'node:path'
 import { branchExists, currentBranch, deleteBranchIfUnchanged, park, pruneWorktrees } from './git.ts'
 import { describeHooks, loadHooks } from './hooks.ts'
 import { ensureRatoonIgnored, IGNORE_RULE } from './init.ts'
-import { layoutOf, POOL_CONFIG_KEY, poolIsIgnoredByRule, resolveBaseRef } from './layout.ts'
+import { layoutOf, poolIsIgnoredByRule, resolveBaseRef } from './layout.ts'
 import { exec, rmrf, run } from './shell.ts'
 import { claim, clearTask, foreignSlotPaths, isFree, release, scanPool } from './state.ts'
 
@@ -24,20 +24,21 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
   // before the ignore line is written, so the warning reflects the user's own dirt, not our edit
   await warnUncommittedMain(mainDir, base)
 
-  // A changed ratoon.poolPath leaves git's bindings in the old pool while every command looks at
-  // the new one. Refuse before creating anything, while the old slots are still untouched.
+  // A changed ratoon.poolPath — or the default moving outside the repository — leaves git's
+  // bindings in the old pool while every command looks at the new one. Refuse before creating
+  // anything, while the old slots are still untouched.
   const foreign = await foreignSlotPaths(root, mainDir)
   if (foreign.length > 0) {
     throw new Error(
       `git still has ratoon slots outside ${root}:\n  ${foreign.join('\n  ')}\n`
-      + `finish or abandon those tasks first, or restore ${POOL_CONFIG_KEY} to their pool.`,
+      + `land or discard those tasks first (see \`git worktree list\`), then \`git worktree prune\`.`,
     )
   }
 
-  // Slots under <repo>/.ratoon/ are covered by the one ignore rule; a pool outside the repository
-  // leaves nothing of ratoon's in it, so there is no line to add. `init` writes the rule when it
-  // puts hooks/types under .ratoon/. A pool inside the repository but outside .ratoon/ is refused
-  // where the path is resolved, so those two are the only cases left here.
+  // A pool configured inside the repository still needs the one ignore rule; the built-in default
+  // lives outside the tree and leaves nothing of ratoon's in it. `init` writes the rule for the
+  // hook toolbox. A pool inside the repository but outside .ratoon/ is refused where the path is
+  // resolved, so an in-repo base is the only case left here.
   if (poolIsIgnoredByRule(root, mainDir)) {
     const ignored = ensureRatoonIgnored(mainDir)
     if (ignored !== 'present')

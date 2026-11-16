@@ -44,14 +44,16 @@ export function refuseSelf(dir: string): void {
 }
 
 /**
- * The one line that keeps ratoon's local state out of git. It is a glob on purpose: with plain
- * `.ratoon/`, git never descends into the ignored directory, so `!.ratoon/hooks.ts` could not
- * re-include a file a team wants to share. `.ratoon/*` ignores everything today and leaves that
- * door open.
+ * The one line that keeps ratoon's local state out of git: the hook toolbox under `.ratoon/`, and a
+ * pool configured inside the repository. It is a glob on purpose: with plain `.ratoon/`, git never
+ * descends into the ignored directory, so `!.ratoon/hooks.ts` could not re-include a file a team
+ * wants to share. `.ratoon/*` ignores everything today and leaves that door open.
  *
- * `start` calls this on every run, so a plain `git init` is already enough to begin; `init` calls
- * it too, for people who start there. Idempotent: a second call never appends a duplicate. An older
- * `.ratoon/worktrees/` rule counts as installed, so existing repositories are left as they are.
+ * `start` calls this when the pool is configured inside the repository, and `init` calls it for the
+ * toolbox — whichever command needs the rule first writes it, so a plain `git init` is already
+ * enough to begin. The built-in pool lives outside the project and needs no rule at all.
+ * Idempotent: a second call never appends a duplicate. An older `.ratoon/worktrees/` rule counts as
+ * installed, so existing repositories are left as they are.
  *
  * The rule gets a paragraph of its own. Appended straight onto the last entry it reads as a member
  * of whatever group ends the file (`# scratch`, `# editors`, …), and a line the project never wrote

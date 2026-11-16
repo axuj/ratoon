@@ -4,8 +4,8 @@
 [![ci](https://img.shields.io/github/actions/workflow/status/axuj/ratoon/ci.yml?branch=master)](https://github.com/axuj/ratoon/actions/workflows/ci.yml)
 
 A worktree **slot pool** for git. Two tasks at once usually means two clones and two cold
-installs — or a stash dance in one worktree. ratoon gives each task a slot instead: a worktree in
-an ignored `.ratoon/worktrees/` pool, landed as exactly one commit, kept warm for the next task.
+installs — or a stash dance in one worktree. ratoon gives each task a slot instead: a worktree
+outside the project tree, landed as exactly one commit, kept warm for the next task.
 
 The name is the agronomic one: after a harvest the *ratoon* (regrowth) springs from the same root
 system, which is exactly what a slot does.
@@ -63,8 +63,8 @@ cd your-repo
 ratoon start add-banner                    # prints the slot path — edit, commit and test there
 ```
 
-`start` works in any git repository with no setup. The first run adds `.ratoon/*` to `.gitignore`
-— commit that line.
+`start` works in any git repository with no setup, and puts nothing in the project: the pool lives
+outside it, so there is no ignore rule to add.
 
 `ratoon init` is optional: it writes the hook toolbox (`.ratoon/hooks.ts`, `types.ts` and the
 starter plugins). Two starters are the reason to run it: `taskNotes()` — on by default — writes a
@@ -86,9 +86,9 @@ a hook imports at runtime belongs in the project's dependencies.
 The Node >= 26 floor comes from those hooks: they are `.ts` files the CLI imports directly, and Node
 runs them by stripping the types as it loads — no build step, no `ts-node`, no loader to configure.
 
-`.ratoon/` is local state, not project content. While the pool sits inside it, one rule —
-`.ratoon/*` — keeps it out of git, and the glob leaves room for exceptions: add `!.ratoon/hooks.ts`
-(or `!.ratoon/plugins/`) when a team should share them.
+`.ratoon/` is local state, not project content, and `init` writes one rule — `.ratoon/*` — to keep
+it out of git. The glob leaves room for exceptions: add `!.ratoon/hooks.ts` (or `!.ratoon/plugins/`)
+when a team should share them.
 
 Every command also works from inside the repository or a slot — `ratoon list` in `your-repo/src`
 finds the pool — so there is no need to `cd` back out to see it.
@@ -96,8 +96,14 @@ finds the pool — so there is no need to `cd` back out to see it.
 Task names are kebab-case (`add-banner`): the name *is* the branch (`feature/add-banner`), so it is
 validated before any git command runs instead of failing inside git afterwards.
 
-By default the pool lives at `.ratoon/worktrees/` and is created by the first `start`. Running
-`ratoon init` fills in the optional toolbox in the same directory:
+By default the pool lives outside the project, one directory per repository under a single base:
+`$XDG_DATA_HOME/ratoon/pools`, or `~/.local/share/ratoon/pools` when that variable is unset — the
+same convention `nub` and `opencode` follow, Windows included. Each repository mirrors itself under
+it, so `D:/code/app` becomes `<base>/d/code/app`, and `ratoon list` prints the exact path. Nothing
+in the project records it: the location is derived from the repository path, so a moved repository
+simply mirrors itself somewhere else.
+
+`ratoon init` is the only command that puts files in the project, and they all sit under `.ratoon/`:
 
 ```
 your-repo/
@@ -106,30 +112,32 @@ your-repo/
 │  ├─ plugins/          # starter plugins — taskNotes on, the rest opt-in
 │  ├─ types.ts          # Plugin / LifecycleHook / HookContext
 │  ├─ tsconfig.json     # the toolbox as its own editor project
-│  ├─ package.json      # private manifest, for @types/node if you install it
-│  └─ worktrees/        # the default pool — the .ratoon/* rule keeps it out of git
-│     ├─ slot-0/ …      # worktrees
-│     └─ .state/<slot>/ # TASK.md handoff sheet, claims, install fingerprints
+│  └─ package.json      # private manifest, for @types/node if you install it
 └─ ... the project's own package.json and tsconfig, untouched
+
+<base>/d/code/your-repo/
+├─ slot-0/ …            # worktrees, created by the first `start`
+└─ .state/<slot>/       # TASK.md handoff sheet, claims, install fingerprints
 ```
 
 One repository, one pool — every command finds it through git, from the repository, a subdirectory
-or a slot, with no flags. The only file outside `.ratoon/` that ratoon ever touches is one line of
-`.gitignore`, so the project still looks like a normal project; `git status` and `git add -A` never
-see the slots.
+or a slot, with no flags. ratoon writes nothing outside `.ratoon/`, so the project stays a normal
+project: `git status` and `git add -A` never see the slots, and no test runner, type checker or IDE
+index walks into a second copy of it.
 
-`.ratoon/` holds the worktree checkouts and notes next to a few small config files, so never copy,
-archive or cache the directory as a whole — copy the individual files. Do not run `git clean -fdx`
-in the main worktree: it deletes everything in `.ratoon/` except the slots themselves — the hook
-toolbox, the notes and the install fingerprints — and `start` then runs with no hooks. `ratoon init`
-rebuilds the toolbox, but the notes are gone.
+`.ratoon/` holds the hook toolbox, and the slots and their notes live in the pool; never copy,
+archive or cache either place as a whole — copy the individual files. Do not run `git clean -fdx`
+in the main worktree: it deletes everything in `.ratoon/` — the hook toolbox, which is ignored and
+therefore untracked — and `start` then runs with no hooks. `ratoon init` rebuilds the toolbox.
 
-The `.gitignore` rule keeps a pool inside the project out of git, and out of nothing else. Anything
-that walks the repository — a test runner, `tsc`, an IDE index, a plain `grep -r` — sees every busy
-slot as an ordinary directory holding a full copy of the project, possibly on another branch. Scope
-those tools off `.ratoon/`; this repository does it with one `exclude` entry in `vitest.config.ts`.
+A pool configured back inside the project is a different matter: the `.gitignore` rule keeps git out
+of it, and out of nothing else. Anything that walks the repository — a test runner, `tsc`, an IDE
+index, a plain `grep -r` — then sees every busy slot as an ordinary directory holding a full copy of
+the project, possibly on another branch. Scope those tools off `.ratoon/`; this repository does it
+with one `exclude` entry in `vitest.config.ts`.
 
-To keep the checkouts out of the project tree altogether, name a base directory instead:
+To put the checkouts somewhere else — a faster disk, or back inside the project — name a base
+directory instead:
 
 ```bash
 git config --local  ratoon.poolPath D:/worktree   # one repository
@@ -142,10 +150,11 @@ without two of them sharing slots. Slots and their `.state/` move together; hook
 plugins stay in `.ratoon/`.
 
 The key is read through git (local over global), so a slot finds its pool without a flag, and
-`ratoon list` prints the path and the config file that set it. An external pool leaves nothing to
-ignore, so `start` writes no `.gitignore` line. `start` refuses to build a second pool while git
-still has worktree bindings in another one, and refuses a base that would land the pool inside the
-project but outside `.ratoon/`.
+`ratoon list` prints the path and the config file that set it. A base outside the repository leaves
+nothing to ignore, so `start` writes no `.gitignore` line; a base inside it must sit under
+`.ratoon/`, where the one rule covers it. `start` refuses to build a second pool while git still
+has worktree bindings in another one, and refuses a base that would land the pool inside the project
+but outside `.ratoon/`.
 
 The hooks are optional. Delete `.ratoon/hooks.ts` and the repository is a plain worktree pool:
 allocate, branch, clean, squash, rebase, merge, park.
@@ -242,7 +251,7 @@ first depends on whether both should land; the skill's *Building on another task
 ## Development
 
 ```bash
-nub run demo        # throwaway repo in ./ratoon-demo, pool at ./ratoon-demo/.ratoon/worktrees
+nub run demo        # throwaway repo in ./ratoon-demo, pool outside it under XDG_DATA_HOME
 nub run typecheck   # tsc --noEmit
 nub run lint        # eslint
 nub run test        # unit + real-git end-to-end suites

@@ -2,6 +2,7 @@ import type { Repo } from '../helpers/repo.ts'
 import { mkdirSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { poolForRepo } from '../../src/layout.ts'
 import {
   finish,
   gitOut,
@@ -88,7 +89,8 @@ describe('ratoon list', () => {
     const result = await ratoon(['list'], { cwd: outside })
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('0 slot(s)')
-    expect(result.stdout).toContain(path.join(outside, '.ratoon', 'worktrees'))
+    // the default pool is derived from the repository path, outside it
+    expect(result.stdout).toContain(poolForRepo(outside))
   })
 
   it('shows a parked slot as free and detached once it is finished', async () => {

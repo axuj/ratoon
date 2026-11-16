@@ -1,11 +1,24 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { poolForRepo } from '../../src/layout.ts'
 import { run } from '../../src/shell.ts'
 
 const CLI = fileURLToPath(new URL('../../src/cli.ts', import.meta.url))
+
+/**
+ * The default pool lives outside the repository, in the developer's own XDG data directory — which
+ * a test run must never touch. One throwaway base per test process keeps every fixture's pool away
+ * from it, and the inherited environment carries that base into every CLI subprocess. A fixture
+ * removes its own pool when it is disposed; the base is left for the OS to clear.
+ */
+const POOL_HOME = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'ratoon e2e pool ')))
+process.env.XDG_DATA_HOME = POOL_HOME
+process.once('exit', () => {
+  disposeDir(POOL_HOME)
+})
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -17,7 +30,7 @@ export interface Repo {
   tmp: string
   /** the repository ratoon is installed into */
   repo: string
-  /** `<repo>/.ratoon/worktrees/` — the default, ignored pool */
+  /** the pool outside the project: mirrored under this test process's `XDG_DATA_HOME` */
   pool: string
   dispose: () => void
 }
@@ -82,8 +95,11 @@ export async function makeRepo(opts: { withPackageJson?: boolean, install?: bool
   const made: Repo = {
     tmp,
     repo,
-    pool: path.join(repo, '.ratoon', 'worktrees'),
-    dispose: () => disposeDir(tmp),
+    pool: poolForRepo(repo),
+    dispose: () => {
+      disposePool(poolForRepo(repo))
+      disposeDir(tmp)
+    },
   }
   if (withPackageJson && install)
     await installDeps(made)
@@ -126,6 +142,32 @@ export function disposeDir(dir: string): void {
   }
   try {
     rmSync(dir, { recursive: true, force: true })
+  }
+  catch {}
+}
+
+/**
+ * Drop a fixture's pool, then the empty mirror directories above it: the base is shared by every
+ * fixture in the process, so removing the temporary repository is not enough. Stops at the first
+ * directory that is not empty — another fixture may still be using a sibling of it.
+ */
+export function disposePool(pool: string): void {
+  disposeDir(pool)
+  for (
+    let dir = path.dirname(pool);
+    dir !== POOL_HOME && dir.startsWith(POOL_HOME);
+    dir = path.dirname(dir)
+  ) {
+    try {
+      rmdirSync(dir)
+    }
+    catch {
+      return
+    }
+  }
+  // the last fixture in this process takes the empty base with it; the next one recreates it
+  try {
+    rmdirSync(POOL_HOME)
   }
   catch {}
 }

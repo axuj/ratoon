@@ -236,8 +236,8 @@ async function worktreeBranches(root: string, mainDir: string): Promise<Map<stri
 
 /**
  * Busy slot worktrees git knows about but that sit outside this pool. This is what a changed
- * `ratoon.poolPath` looks like from git's side; creating a second pool would strand the task
- * checked out in them.
+ * `ratoon.poolPath` — or a default that moved — looks like from git's side; creating a second pool
+ * would strand the task checked out in them.
  *
  * A parked slot is detached and holds no task, so leaving it behind costs nothing — and refusing
  * over it would make a pool move impossible in a repository where every task is already done.

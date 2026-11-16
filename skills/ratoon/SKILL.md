@@ -37,12 +37,13 @@ by default.
 
 ## The tool in one paragraph
 
-ratoon gives each task a slot — a worktree in a gitignored pool — and lands it as one commit.
-Install with `npm i -g ratoon` (Node >= 26). `ratoon start` works in any git repository with no
-setup; `ratoon init` is optional and only writes the hook toolbox (`.ratoon/hooks.ts`, `types.ts`,
-starter plugins). Every command works from the repository, any subdirectory or inside a slot. The
-default pool is `<repo>/.ratoon/worktrees/`; git config `ratoon.poolPath` can move it. Read the
-actual path from `ratoon list` or from `start` output instead of assuming it.
+ratoon gives each task a slot — a worktree in a pool outside the project tree — and lands it as one
+commit. Install with `npm i -g ratoon` (Node >= 26). `ratoon start` works in any git repository with
+no setup and writes nothing into it; `ratoon init` is optional and only writes the hook toolbox
+(`.ratoon/hooks.ts`, `types.ts`, starter plugins). Every command works from the repository, any
+subdirectory or inside a slot. The default pool is `$XDG_DATA_HOME/ratoon/pools/<mirror of the
+repo>`, or `~/.local/share` when that variable is unset; git config `ratoon.poolPath` can move it.
+Read the actual path from `ratoon list` or from `start` output instead of assuming it.
 
 ## Rules that are easy to miss
 
@@ -54,8 +55,9 @@ actual path from `ratoon list` or from `start` output instead of assuming it.
 - `references/stacking.md` — starting one task from another (`--base`), and which one to land first.
 - `references/landing-targets.md` — landing on another branch with `finish --into <branch>`, and its
   two git limits.
-- `references/git-and-pool.md` — `.gitignore`, `poolPath`, sharing hook files, hooks are read from
-  the main working tree, scope tools off `.ratoon/`, dirty trees, conflict pause and exit 2.
+- `references/git-and-pool.md` — where the pool lives, `poolPath`, `.gitignore`, sharing hook files,
+  hooks are read from the main working tree, dirty trees, conflict pause and exit 2.
+- `references/upgrade.md` — 0.3.x kept the pool inside the project; what to do with those slots.
 - `references/handoff-sheet.md` — how to write `TASK.md`, and what to read when a subagent takes over.
 - `references/dispatch.md` — what to tell a subagent with an isolated context.
 - Writing a plugin — read the files `ratoon init` wrote: `.ratoon/types.ts` is the contract,

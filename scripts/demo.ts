@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { ensureRatoonIgnored, refuseSelf, writeScaffolding } from '../src/init.ts'
-import { layoutOf } from '../src/layout.ts'
+import { refuseSelf, writeScaffolding } from '../src/init.ts'
+import { layoutOf, poolForRepo } from '../src/layout.ts'
 import { exec, run } from '../src/shell.ts'
 
 /**
@@ -14,7 +14,7 @@ import { exec, run } from '../src/shell.ts'
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url)).replace(/\\/g, '/')
 
 /**
- * `nub run demo` — a throwaway repository with an ignored slot pool inside it, so the plugin flow
+ * `nub run demo` — a throwaway repository with its own slot pool outside it, so the plugin flow
  * can be exercised without a real project. This is scaffolding for *developing* ratoon, which is
  * why it lives behind a package script rather than on the command surface: `init` is the product,
  * this is the workbench.
@@ -50,14 +50,16 @@ async function demo(): Promise<void> {
     if (!isDemoRepo(dir))
       throw new Error(`refusing to delete ${dir}: it is not a ratoon demo (no ${DEMO_MARKER} marker).`)
     rmSync(dir, { recursive: true, force: true })
+    // the pool is outside the project now, so --force has to clear it too, or the next demo would
+    // inherit slots whose repository is gone
+    rmSync(poolForRepo(dir), { recursive: true, force: true })
     console.log(`wiping ${dir}`)
   }
 
   await makeMainRepo(dir)
 
-  // the same shape `init` writes: ratoon installed into the repository, pool ignored inside it
+  // the same shape `init` writes: the toolbox in the project, the pool outside it
   const { wrote } = writeScaffolding(dir)
-  ensureRatoonIgnored(dir)
   console.log(`\nscaffolding ${dir}\n  wrote     ${wrote.join(', ')}\n`)
 
   writeDemoHooks(dir)
@@ -164,7 +166,7 @@ async function makeMainRepo(dir: string): Promise<void> {
         'A throwaway project for exercising ratoon\'s starter plugins:',
         '',
         '- `npmInstall()` installs the local `file:./vendor/tiny` dependency (no registry) and',
-        '  fingerprints it under `.ratoon/worktrees/.state/`, so a warm slot skips the next `start`.',
+        '  fingerprints it under the pool\'s `.state/`, so a warm slot skips the next `start`.',
         '- the `build` plugin runs `npm run build` in `onStart` → `dist/out.js`.',
         '- `dist/` is gitignored, so building does not make `finish` refuse to land.',
         '',

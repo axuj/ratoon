@@ -74,7 +74,8 @@ describe('ratoon init', () => {
       'types.ts',
     ])
 
-    // `init` declares the pool but does not create it — `start` does, on demand. No sibling pool.
+    // `init` writes the toolbox and nothing else: no pool, no state, no sibling directory — the
+    // pool lives outside the project and `start` creates it on demand
     expect(existsSync(path.join(repo, '.ratoon', 'worktrees'))).toBe(false)
     expect(existsSync(path.join(root, 'proj-wt'))).toBe(false)
     expect(existsSync(path.join(repo, 'slot-0'))).toBe(false)

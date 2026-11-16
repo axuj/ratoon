@@ -1,5 +1,7 @@
 import { realpathSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { refExists } from './git.ts'
 import { exec } from './shell.ts'
 
@@ -13,14 +15,31 @@ export interface Layout {
 }
 
 /**
- * The default pool lives under `.ratoon/`, so the repository gains exactly one new top-level entry.
- * Stored in `.gitignore` spelling (forward slashes) because the same string becomes an ignore rule.
+ * The pool inside the repository — the one place the `.ratoon/*` ignore rule covers. It is no
+ * longer the default: a busy slot is a full copy of the project inside the tree, and every test
+ * runner, type checker and indexer walks into it. `ratoon.poolPath` can still bring a pool back
+ * here, and an older repository may already have one at this path.
  */
 const POOL_PARTS = ['.ratoon', 'worktrees'] as const
-export const POOL_DIR = POOL_PARTS.join('/')
+
+/**
+ * Where the default pool lives: one base for the machine, under the XDG data directory — the same
+ * convention nub and opencode follow, Windows included. Not a cache directory: a slot holds
+ * uncommitted work, and caches are exactly what cleaners delete.
+ *
+ * The location is a function of the repository path, not state: nothing has to be written into the
+ * project to remember it, and a moved repository simply mirrors itself somewhere else.
+ */
+export function defaultPoolBase(): string {
+  const xdg = process.env.XDG_DATA_HOME
+  const data = xdg !== undefined && path.isAbsolute(xdg)
+    ? xdg
+    : path.join(os.homedir(), '.local', 'share')
+  return path.join(data, 'ratoon', 'pools')
+}
 
 export function poolForRepo(mainDir: string): string {
-  return path.join(mainDir, ...POOL_PARTS)
+  return derivePool(defaultPoolBase(), mainDir)
 }
 
 export const POOL_CONFIG_KEY = 'ratoon.poolPath'
@@ -103,7 +122,7 @@ async function configuredPool(mainDir: string): Promise<{ root: string, origin: 
     && !poolIsIgnoredByRule(root, mainDir)) {
     throw new Error(
       `${POOL_CONFIG_KEY} must point outside the repository or into ${POOL_PARTS[0]}/: ${root}\n`
-      + `only ${POOL_PARTS[0]}/* is ignored — unset the key to use ${POOL_DIR}`,
+      + `only ${POOL_PARTS[0]}/* is ignored — unset the key to use ${defaultPoolBase()}`,
     )
   }
   return { root, origin }
@@ -125,9 +144,9 @@ export function poolIsIgnoredByRule(root: string, mainDir: string): boolean {
  * flag would be missing exactly when `finish` runs from inside a slot. The source is persisted in
  * git config, not in the environment.
  *
- * Nothing has to be installed first. The default pool is a fixed path under the repository,
- * created by the first `start`, which also adds the single `.gitignore` line that keeps it out of
- * git. A repository with no slots yet is not an error — it is a repository before its first task.
+ * Nothing has to be installed first, and nothing is written into the project: the default pool is
+ * derived from the repository path and lives outside the tree. A repository with no slots yet is
+ * not an error — it is a repository before its first task.
  */
 export async function layoutOf(hints: { cwd?: string } = {}): Promise<Layout> {
   const cwd = path.resolve(hints.cwd ?? process.cwd())

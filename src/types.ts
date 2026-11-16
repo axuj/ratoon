@@ -8,7 +8,7 @@
  * there without being told.
  */
 export interface HookContext {
-  /** the pool — `<repo>/.ratoon/worktrees/` by default, movable with `ratoon.poolPath` — holds the slots and `.state/` */
+  /** the pool — outside the project by default, movable with `ratoon.poolPath` — holds the slots and `.state/` */
   rootDir: string
   /** the repository's own working tree */
   mainDir: string
