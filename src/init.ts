@@ -3,6 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { layoutOf } from './layout.ts'
+import { exec } from './shell.ts'
 import { HOOKS, PACKAGE_JSON, TSCONFIG } from './templates.ts'
 
 const PLUGIN_FILES = [
@@ -44,33 +45,61 @@ export function refuseSelf(dir: string): void {
 }
 
 /**
- * The one line that keeps ratoon's local state out of git: the hook toolbox under `.ratoon/`, and a
- * pool configured inside the repository. It is a glob on purpose: with plain `.ratoon/`, git never
- * descends into the ignored directory, so `!.ratoon/hooks.ts` could not re-include a file a team
- * wants to share. `.ratoon/*` ignores everything today and leaves that door open.
+ * The one line that keeps the toolbox out of git: `.ratoon/*` in this clone's `.git/info/exclude`,
+ * never `.gitignore`, which is a project file. The rule is local, so a clone that versions the
+ * toolbox still ignores the rest of the directory.
  *
- * `start` calls this when the pool is configured inside the repository, and `init` calls it for the
- * toolbox — whichever command needs the rule first writes it, so a plain `git init` is already
- * enough to begin. The built-in pool lives outside the project and needs no rule at all.
- * Idempotent: a second call never appends a duplicate. An older `.ratoon/worktrees/` rule counts as
- * installed, so existing repositories are left as they are.
+ * The glob is deliberate: with plain `.ratoon/`, git never descends into the ignored directory, so
+ * `!.ratoon/hooks.ts` could never re-include a file a project decides to share.
+ *
+ * Only `init` calls this. A plain `git init` is already enough to begin. Idempotent: a second call
+ * never appends a duplicate, and `.ratoon/` — the same rule without the glob — counts as installed.
+ * It only adds; nothing here removes a line.
  *
  * The rule gets a paragraph of its own. Appended straight onto the last entry it reads as a member
- * of whatever group ends the file (`# scratch`, `# editors`, …), and a line the project never wrote
- * is the first one a reader deletes by mistake. It is still one rule — only the blank line above it
- * is new.
+ * of whatever group ends the file, and a line the project never wrote is the first one a reader
+ * deletes by mistake. It is still one rule — only the blank line above it is new.
  */
-export const IGNORE_RULE = '.ratoon/*'
+const IGNORE_RULE = '.ratoon/*'
 
-export function ensureRatoonIgnored(repo: string): 'added' | 'created' | 'present' {
-  const file = path.join(repo, '.gitignore')
+const IGNORE_SPELLINGS = [IGNORE_RULE, '.ratoon/']
+
+/** Whether a single ignore line is ratoon's own rule, in any spelling it has ever written. */
+function isRatoonRule(line: string): boolean {
+  const trimmed = line.trim()
+  return IGNORE_SPELLINGS.some(rule => trimmed === rule || trimmed === `/${rule}`)
+}
+
+/** Whether an ignore file already covers `.ratoon/`. */
+function coversRatoon(text: string): boolean {
+  return text.split(/\r?\n/).some(isRatoonRule)
+}
+
+/**
+ * `.git/info/exclude` the way git resolves it — right for linked worktrees, submodules and
+ * `--separate-git-dir`, where `.git` may be a file or somewhere else entirely.
+ */
+async function excludeFile(repo: string): Promise<string> {
+  const result = await exec('git', [
+    '-C',
+    repo,
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-path',
+    'info/exclude',
+  ])
+  if (result.status !== 0)
+    throw new Error(`could not locate .git/info/exclude: ${result.stderr.trim()}`)
+  return result.stdout.trim()
+}
+
+async function ensureRatoonIgnored(repo: string): Promise<'added' | 'created' | 'present'> {
+  const file = await excludeFile(repo)
   const text = existsSync(file)
     ? readFileSync(file, 'utf8')
     : ''
-  const lines = text.split(/\r?\n/).map(line => line.trim())
-  const installed = lines.some(line =>
-    [IGNORE_RULE, '.ratoon/', '.ratoon/worktrees/'].some(rule => line === rule || line === `/${rule}`))
-  if (installed)
+
+  if (coversRatoon(text))
     return 'present'
 
   // `text` is kept byte for byte: the gap only closes a last line that lacks its newline and adds
@@ -78,6 +107,7 @@ export function ensureRatoonIgnored(repo: string): 'added' | 'created' | 'presen
   const eol = text.includes('\r\n')
     ? '\r\n'
     : '\n'
+  mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, `${text}${gapAbove(text, eol)}${IGNORE_RULE}${eol}`)
   return text === ''
     ? 'created'
@@ -117,8 +147,8 @@ export function ensureWritable(repo: string): void {
  * plugin, a type, or `hooks.ts` is safe: the next `init` leaves it byte for byte. The way to take
  * a newer copy after upgrading ratoon is to delete that file and run `init` again.
  *
- * The project's `package.json` and `tsconfig.json` are never touched; `.gitignore` gets one line
- * from `ensureRatoonIgnored`.
+ * It writes `.ratoon/` files and one line in this clone's `.git/info/exclude`. The project's own
+ * `package.json` and `tsconfig.json` are left alone.
  */
 export function writeScaffolding(dir: string): ScaffoldResult {
   mkdirSync(path.join(dir, '.ratoon'), { recursive: true })
@@ -173,10 +203,9 @@ export async function runInit(): Promise<void> {
   const repo = (await layoutOf()).mainDir
   ensureWritable(repo)
   const { wrote, kept } = writeScaffolding(repo)
-  const ignored = ensureRatoonIgnored(repo)
+  const ignored = await ensureRatoonIgnored(repo)
 
-  // `start` creates the pool on demand. An empty ignored directory is not an installation marker:
-  // `git clean -fdx` removes it, and `resolveLayout` reads committed traces instead.
+  // `start` creates the pool on demand — an empty directory is not an installation marker
   const { root: pool } = await layoutOf({ cwd })
 
   const summary = [`\ninstalling ratoon into ${repo}`]
@@ -187,7 +216,7 @@ export async function runInit(): Promise<void> {
   if (kept.length > 0 && wrote.length > 0)
     summary.push(`  exists    ${kept.join(', ')}`)
   if (ignored !== 'present')
-    summary.push(`  ${ignored}   .gitignore (${IGNORE_RULE})`)
+    summary.push(`  ${ignored}   .git/info/exclude (${IGNORE_RULE}, local to this clone)`)
   console.log(`${summary.join('\n')}\n`)
 
   if (kept.length > 0)

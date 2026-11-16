@@ -48,7 +48,7 @@ describe('a pool under a base directory', () => {
     expect(path.relative(base, poolFor(base))).not.toBe('')
     expect(existsSync(path.join(poolFor(base), 'slot-0', '.git'))).toBe(true)
     expect(existsSync(path.join(c.repo, '.ratoon'))).toBe(false)
-    // no ratoon file lives in the project, so start must not add an ignore rule either
+    // nothing of ratoon's lives in the project: no scaffolding, no ignore rule
     expect(readFileSync(path.join(c.repo, '.gitignore'), 'utf8')).toBe('node_modules/\n')
     expect(gitOut(c.repo, 'status', '--porcelain', '-uall')).toBe('')
   })
@@ -128,28 +128,20 @@ describe('a pool under a base directory', () => {
     expect(readFileSync(path.join(c.repo, '.git', 'config'), 'utf8')).not.toContain(KEY)
   })
 
-  it('refuses a base that lands the pool inside the repository', async () => {
-    // nothing in the project would ignore it: the slots become untracked files, and one
-    // `git add -A` would commit every worktree
+  it('takes a base inside the repository as an ordinary directory', async () => {
+    // the base is used as written: the pool lands there, and git sees it like any other directory
     configure('pools')
     const result = await start(c, 'alpha')
-    expect(result.status).toBe(1)
-    expect(result.stderr).toContain('must point outside the repository or into .ratoon/')
-    expect(existsSync(poolFor(path.join(c.repo, 'pools')))).toBe(false)
+    expect(result.status, result.stderr).toBe(0)
+    expect(existsSync(path.join(poolFor(path.join(c.repo, 'pools')), 'slot-0', '.git'))).toBe(true)
+    expect(gitOut(c.repo, 'status', '--porcelain', '-uall')).toContain('pools/')
+  })
 
-    // the repository itself lands the mirror inside it too
+  it('takes the repository itself as a base', async () => {
     configure('.')
-    const self = await start(c, 'beta')
-    expect(self.status).toBe(1)
-    expect(self.stderr).toContain('must point outside the repository or into .ratoon/')
-
-    // under .ratoon/ the mirror is inside the one ignore rule, so it is allowed
-    configure('.ratoon/pools')
-    const under = await start(c, 'gamma')
-    expect(under.status).toBe(0)
-    expect(existsSync(path.join(poolFor(path.join(c.repo, '.ratoon', 'pools')), 'slot-0', '.git'))).toBe(true)
-    // the rule is written but uncommitted; the slots themselves never reach git status
-    expect(gitOut(c.repo, 'status', '--porcelain', '-uall')).not.toContain('slot-0')
+    const result = await start(c, 'alpha')
+    expect(result.status, result.stderr).toBe(0)
+    expect(existsSync(path.join(poolFor(c.repo), 'slot-0', '.git'))).toBe(true)
   })
 
   it('moves the base once every task is done, leaving only a parked slot behind', async () => {
@@ -181,7 +173,6 @@ describe('a pool under a base directory', () => {
     const removed = await start(c, 'gamma')
     expect(removed.status).toBe(1)
     expect(removed.stderr).toContain('git still has ratoon slots outside')
-    expect(readFileSync(path.join(c.repo, '.gitignore'), 'utf8')).toBe('node_modules/\n')
   })
 
   it('treats the old 0.3.x default as an ordinary base, and refuses an old slot left in it', async () => {
@@ -201,17 +192,5 @@ describe('a pool under a base directory', () => {
     const second = await start(c, 'beta')
     expect(second.status).toBe(1)
     expect(second.stderr).toContain('git still has ratoon slots outside')
-  })
-
-  it('writes the ignore rule when the pool lives inside the repository', async () => {
-    configure('.ratoon/pool')
-    const result = await start(c, 'alpha')
-    expect(result.status, result.stderr).toBe(0)
-
-    // the pool mirrors itself under the base, and one committed rule keeps the whole tree out
-    expect(existsSync(path.join(poolFor(path.join(c.repo, '.ratoon', 'pool')), 'slot-0', '.git'))).toBe(true)
-    expect(readFileSync(path.join(c.repo, '.gitignore'), 'utf8')).toContain('.ratoon/*')
-    expect(result.stdout).toContain('commit it so the pool stays out of git')
-    expect(gitOut(c.repo, 'status', '--porcelain', '-uall')).not.toContain('slot-')
   })
 })

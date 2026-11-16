@@ -15,14 +15,6 @@ export interface Layout {
 }
 
 /**
- * The pool inside the repository — the one place the `.ratoon/*` ignore rule covers. It is no
- * longer the default: a busy slot is a full copy of the project inside the tree, and every test
- * runner, type checker and indexer walks into it. `ratoon.poolPath` can still bring a pool back
- * here, and an older repository may already have one at this path.
- */
-const POOL_PARTS = ['.ratoon', 'worktrees'] as const
-
-/**
  * Where the default pool lives: one base for the machine, under the XDG data directory — the same
  * convention nub and opencode follow, Windows included. Not a cache directory: a slot holds
  * uncommitted work, and caches are exactly what cleaners delete.
@@ -78,6 +70,8 @@ function derivePool(base: string, mainDir: string): string {
  * path (see `derivePool`), so a global setting can name one directory for every project without
  * two of them sharing slots. A relative value is resolved against the main working tree, so a base
  * beside the repository survives moving both.
+ *
+ * Any base is accepted, including one inside the repository.
  */
 async function configuredPool(mainDir: string): Promise<{ root: string, origin: string } | undefined> {
   const result = await exec('git', [
@@ -103,38 +97,10 @@ async function configuredPool(mainDir: string): Promise<{ root: string, origin: 
   const base = path.isAbsolute(value)
     ? path.resolve(value)
     : path.resolve(mainDir, value)
-  const root = derivePool(base, mainDir)
-
-  // A base that puts the pool on the repository itself or above it would hand `start` a directory
-  // holding its own checkout. Refuse here rather than failing later inside `git worktree add`.
-  const rest = path.relative(root, mainDir)
-  if (rest === '' || (!rest.startsWith('..') && !path.isAbsolute(rest))) {
-    throw new Error(
-      `${POOL_CONFIG_KEY} must not put the pool on the repository or above it: ${root}`,
-    )
+  return {
+    root: derivePool(base, mainDir),
+    origin,
   }
-
-  // Inside the repository the pool has to sit under `.ratoon/`, the only directory the one ignore
-  // rule covers. Anywhere else inside it the slots would be untracked files, and one `git add -A`
-  // would commit every worktree into the project.
-  const inside = path.relative(mainDir, root)
-  if (inside !== '' && !inside.startsWith('..') && !path.isAbsolute(inside)
-    && !poolIsIgnoredByRule(root, mainDir)) {
-    throw new Error(
-      `${POOL_CONFIG_KEY} must point outside the repository or into ${POOL_PARTS[0]}/: ${root}\n`
-      + `only ${POOL_PARTS[0]}/* is ignored — unset the key to use ${defaultPoolBase()}`,
-    )
-  }
-  return { root, origin }
-}
-
-/**
- * Whether the built-in `.ratoon/*` ignore rule already covers a pool. Every other pool is outside
- * the repository: a pool inside it and outside `.ratoon/` is refused where the base is resolved.
- */
-export function poolIsIgnoredByRule(root: string, mainDir: string): boolean {
-  const rel = path.relative(path.join(mainDir, '.ratoon'), root)
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
 }
 
 /**

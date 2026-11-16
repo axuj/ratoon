@@ -30,10 +30,8 @@ Recovery, in order:
 
 ## Staying inside the project
 
-`git config ratoon.poolPath .ratoon` keeps the pool under `.ratoon/`, where the `.ratoon/*` rule
-covers it. The mirror still nests, so the pool becomes `<repo>/.ratoon/<drive>/<repo path>` — not the
-old `.ratoon/worktrees/`. That is the only supported in-repo location: anywhere else in the tree one
-`git add -A` would commit the slots.
+`git config ratoon.poolPath .ratoon` keeps the pool under `.ratoon/`. The mirror still nests, so the
+pool becomes `<repo>/.ratoon/<drive>/<repo path>` — not the old `.ratoon/worktrees/`.
 
 ## Notes
 

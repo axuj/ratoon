@@ -7,5 +7,3 @@ coverage/
 # scratch
 tests/.tmp/
 ratoon-demo/
-
-.ratoon/*

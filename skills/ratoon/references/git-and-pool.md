@@ -5,26 +5,24 @@ The pool lives outside the project by default: `$XDG_DATA_HOME/ratoon/pools/<mir
 the project records it, and `start` writes nothing there — the location is derived from the
 repository path, and `ratoon list` prints it.
 
+`ratoon.poolPath` moves the base, including to a path inside the repository.
+
 `.ratoon/` is local state, not project content: `init` keeps it out of git with the single
-`.ratoon/*` rule in `.gitignore`. Never `git add` the toolbox on your own; it stays local unless the
-team whitelisted it. `ratoon.poolPath` can move the pool back into the repository — then the same
-rule covers it, and nothing else.
+`.ratoon/*` rule in this clone's `.git/info/exclude`. `git status` stays clean and no tracked file
+changes. The rule is per clone: a linked worktree or a separate git dir resolves to the same one.
 
 Keeping the pool out of the tree is what keeps the project's tools out of it: a busy slot is a full
 copy of the project, possibly on another branch, and a pool inside the repository makes every test
 runner, `tsc`, IDE index and `grep -r` walk it as ordinary directories. Never read a file in the pool
 as the project's current state.
 
-A team can share individual files by whitelisting them. The rule has to be `.ratoon/*` for that to
-work: with plain `.ratoon/`, git never descends into the directory and every `!` exception below it
-is ignored.
+To version the toolbox, force it in:
 
+```sh
+git add -f .ratoon/hooks.ts .ratoon/plugins
 ```
-.ratoon/*
-!.ratoon/hooks.ts            # share the workflow config
-!.ratoon/plugins/            # share the whole plugin folder, including your own
-!.ratoon/plugins/ai.ts       # or just one plugin
-```
+
+Commit the files you want to share.
 
 Share `hooks.ts` and the plugins you wrote or edited. `types.ts` and the starter plugins are copies
 of the ratoon version that ran `init`; they can be shared too, but expect a diff on every upgrade.

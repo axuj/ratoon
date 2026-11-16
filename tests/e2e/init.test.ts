@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -11,7 +11,7 @@ const RATOON_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const TSC = fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url))
 const TYPES = fileURLToPath(new URL('../../node_modules/@types', import.meta.url))
 
-/** What `init` writes into the repository — nothing outside `.ratoon/` belongs to it. */
+/** What `init` writes into the working tree; the exclude rule lives under `.git/`, not here. */
 const SCAFFOLD = [
   '.ratoon/hooks.ts',
   '.ratoon/types.ts',
@@ -40,6 +40,11 @@ function freshRepo(): { root: string, repo: string } {
   return { root, repo }
 }
 
+/** `.git/info/exclude`, resolved the way ratoon resolves it. */
+function excludeOf(repo: string): string {
+  return gitOut(repo, 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude')
+}
+
 afterEach(() => {
   for (const dir of created.splice(0))
     disposeDir(dir)
@@ -59,9 +64,12 @@ describe('ratoon init', () => {
     for (const rel of SCAFFOLD)
       expect(existsSync(path.join(repo, rel)), rel).toBe(true)
 
-    // the project's own files are not ratoon's to write; .gitignore gains exactly one line
+    // the project's own files are not ratoon's to write — not even .gitignore
     expect(readFileSync(path.join(repo, 'package.json'), 'utf8')).toBe(manifest)
-    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('.ratoon/*\n')
+    expect(existsSync(path.join(repo, '.gitignore'))).toBe(false)
+    // the one rule is local to this clone, so the toolbox stays out of status and out of diffs
+    expect(readFileSync(excludeOf(repo), 'utf8')).toContain('.ratoon/*')
+    expect(gitOut(repo, 'status', '--porcelain', '-uall')).not.toContain('.ratoon')
     // agent rules stay in the skill — no frozen copy is written into the repository
     expect(existsSync(path.join(repo, 'AGENTS.md'))).toBe(false)
     expect(existsSync(path.join(repo, '.ratoon', 'AGENTS.md'))).toBe(false)
@@ -107,25 +115,44 @@ describe('ratoon init', () => {
     expect(typecheck.status, typecheck.stdout + typecheck.stderr).toBe(0)
   })
 
-  it('appends the ignore rule once, even across repeated runs', async () => {
+  it('appends the local exclude rule once, even across repeated runs', async () => {
     const { repo } = freshRepo()
-    writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\n')
+    const exclude = excludeOf(repo)
+    writeFileSync(exclude, '# mine\n')
 
     await ratoon(['init'], { cwd: repo })
     await ratoon(['init'], { cwd: repo })
     const third = await ratoon(['init'], { cwd: repo })
     expect(third.status).toBe(0)
-    // its own paragraph: straight under `node_modules/` the rule would read as part of that group
-    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\n\n.ratoon/*\n')
+    // its own paragraph: straight under `# mine` the rule would read as part of that group
+    expect(readFileSync(exclude, 'utf8')).toBe('# mine\n\n.ratoon/*\n')
   })
 
-  it('closes a .gitignore whose last line has no newline', async () => {
+  it('closes an exclude file whose last line has no newline', async () => {
     const { repo } = freshRepo()
-    writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\ndist/')
+    const exclude = excludeOf(repo)
+    writeFileSync(exclude, '# mine')
 
     const result = await ratoon(['init'], { cwd: repo })
     expect(result.status).toBe(0)
-    expect(readFileSync(path.join(repo, '.gitignore'), 'utf8')).toBe('node_modules/\ndist/\n\n.ratoon/*\n')
+    expect(readFileSync(exclude, 'utf8')).toBe('# mine\n\n.ratoon/*\n')
+  })
+
+  it('writes the rule into the git dir git actually uses', async () => {
+    // --separate-git-dir leaves a `.git` pointer file in the checkout, so the exclude cannot be
+    // spelled out as `<repo>/.git/info/exclude` — it has to be resolved through git
+    const root = freshDir()
+    const gitDir = path.join(root, 'store.git')
+    const repo = path.join(root, 'proj')
+    gitOut(root, 'init', '-q', '-b', 'master', `--separate-git-dir=${gitDir}`, repo)
+    expect(statSync(path.join(repo, '.git')).isFile()).toBe(true)
+    const exclude = excludeOf(repo)
+    expect(path.relative(gitDir, exclude).startsWith('..')).toBe(false)
+
+    const result = await ratoon(['init'], { cwd: repo })
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(readFileSync(exclude, 'utf8')).toContain('.ratoon/*')
+    expect(gitOut(repo, 'status', '--porcelain', '-uall')).not.toContain('.ratoon')
   })
 
   it('is a no-op on the second run', async () => {

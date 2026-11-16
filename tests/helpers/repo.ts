@@ -42,10 +42,10 @@ export interface CliResult {
 }
 
 /**
- * A standalone repository. By default `ratoon init` runs inside it before the first commit, so
- * `.ratoon/` and `.gitignore` are committed and a freshly checked-out slot sees the same
- * configuration as the main working tree. `{ init: false }` skips that step: the fixture is then a
- * plain git repository, which is what a user who only wants slots starts from.
+ * A standalone repository. By default `ratoon init` runs inside it before the first commit, so the
+ * toolbox sits in the main working tree and `.ratoon/*` is in this clone's exclude — the rule keeps
+ * it out of the commit. `{ init: false }` skips that step: the fixture is then a plain git
+ * repository, which is what a user who only wants slots starts from.
  * Every command is run from the repository (or a slot) with no flags, the way users run them.
  *
  * `.gitattributes` pins eol=lf so a package manager rewriting package-lock.json does not leave a
@@ -82,8 +82,8 @@ export async function makeRepo(opts: { withPackageJson?: boolean, install?: bool
   ])
     await run('git', ['-C', repo, ...args], { quiet: true })
 
-  // Install before the first commit: the fixture then has one base commit, and every slot checks
-  // out the same `.ratoon/` configuration the main working tree has.
+  // Install before the first commit: the fixture then has one base commit, and hooks are read from
+  // the main working tree rather than from a slot.
   if (withInit) {
     const installed = await ratoon(['init'], { cwd: repo })
     if (installed.status !== 0)

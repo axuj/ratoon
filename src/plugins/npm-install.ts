@@ -33,7 +33,7 @@ export interface NpmInstallOptions {
  * Fingerprint the slot's manifests, skip when nothing changed and `node_modules` is present,
  * otherwise install with the project's own package manager (`packageManager` field first, then
  * `nub.lock` / pnpm / npm / yarn / bun). State lives in `<root>/.state/<slot>…` under the pool,
- * which the project's `.gitignore` keeps out of git, so no worktree needs its own rule for it.
+ * outside every worktree, so no checkout needs its own rule for it.
  */
 export function npmInstall(options: NpmInstallOptions = {}): Plugin {
   const managers = options.managers ?? defaultManagers
