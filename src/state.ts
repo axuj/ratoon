@@ -14,6 +14,7 @@ import { exec } from './shell.ts'
 // `<root>/.state/<slot>/`, one directory per slot:
 //
 //   task     which task this slot is working on (written by start, removed when it lands or dies)
+//   base     the ref and commit a `start --base` named, so finish can ask how to land it
 //   busy     the pid of the command in there right now, so nobody else may touch it
 //   install  fingerprint of the manifests `npmInstall()` already installed (see plugins/npm-install.ts)
 //
@@ -35,6 +36,10 @@ export interface PoolSlot {
   branch: string
   /** task this slot is working on, "" when free */
   task: string
+  /** the ref `start --base` named, "" when the task did not name one */
+  baseRef: string
+  /** that ref's commit at start, "" when the task did not name one */
+  baseSha: string
   /** pid of the command working in it right now, 0 when none */
   claimedBy: number
 }
@@ -61,6 +66,39 @@ function claimFile(root: string, dir: string): string {
 
 function taskFile(root: string, dir: string): string {
   return path.join(stateDir(root, dir), 'task')
+}
+
+function baseFile(root: string, dir: string): string {
+  return path.join(stateDir(root, dir), 'base')
+}
+
+/**
+ * Record the ref and commit a `start --base` named. The task was cut from that snapshot, and
+ * `finish` must be told whether to land it or only the task's own changes — so the pair is kept
+ * next to the task, not re-derived from git later.
+ */
+export function setBase(root: string, dir: string, ref: string, sha: string): void {
+  if (ref === '' || sha === '')
+    return
+  mkdirSync(stateDir(root, dir), { recursive: true })
+  writeFileSync(baseFile(root, dir), `${ref}\t${sha}\n`)
+}
+
+export function clearBase(root: string, dir: string): void {
+  rmSync(baseFile(root, dir), { force: true })
+}
+
+function readBase(root: string, dir: string): { ref: string, sha: string } {
+  try {
+    const [ref = '', sha = ''] = readFileSync(baseFile(root, dir), 'utf8').trim().split('\t')
+    return {
+      ref: ref.trim(),
+      sha: sha.trim(),
+    }
+  }
+  catch {
+    return { ref: '', sha: '' }
+  }
 }
 
 /** The pid a claim file names, 0 when it cannot be read (mid-write, or not a claim at all). */
@@ -151,6 +189,7 @@ export function release(root: string, dir: string): void {
 export function clearTask(root: string, dir: string): void {
   rmSync(claimFile(root, dir), { force: true })
   rmSync(taskFile(root, dir), { force: true })
+  clearBase(root, dir)
 }
 
 function readTask(root: string, dir: string): string {
@@ -282,6 +321,7 @@ export async function scanPool(root: string, mainDir: string): Promise<PoolSlot[
   return [...names].sort(bySlotName).map((dir) => {
     const slotPath = path.join(root, dir)
     const worktree = known.get(dir)
+    const { ref: baseRef, sha: baseSha } = readBase(root, dir)
     return {
       dir,
       path: slotPath,
@@ -289,6 +329,8 @@ export async function scanPool(root: string, mainDir: string): Promise<PoolSlot[
       missing: !existsSync(slotPath),
       branch: worktree?.branch ?? '',
       task: readTask(root, dir),
+      baseRef,
+      baseSha,
       claimedBy: claimOn(root, dir),
     }
   })

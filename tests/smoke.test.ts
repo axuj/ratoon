@@ -46,7 +46,8 @@ describe('citty command tree', () => {
     ]) {
       const help = runCli(...args)
       expect(help.status).toBe(0)
-      expect(help.stdout).not.toContain('--base')
+      // a declared option, not the `--base` inside `--include-base` / `--skip-base` or prose
+      expect(help.stdout).not.toMatch(/^\s+--base(?:=|\s)/m)
     }
   })
 

@@ -164,9 +164,8 @@ async function mainRepoOf(cwd: string): Promise<string> {
   return path.resolve(first.slice('worktree '.length).trim())
 }
 
-/** `--base` wins; otherwise master, then main. */
-export async function resolveBaseRef(opts: { base?: string }, mainDir: string): Promise<string> {
-  const given = opts.base
+/** `--base` wins; otherwise master, then main. `start` is the only command that can name one. */
+export async function resolveBaseRef(given: string | undefined, mainDir: string): Promise<string> {
   if (given !== undefined) {
     if (!await refExists(mainDir, given))
       throw new Error(`base ref not found: ${given}`)

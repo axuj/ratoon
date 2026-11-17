@@ -1,4 +1,4 @@
-import type { RatoonOptions } from './cli.ts'
+import type { BranchOptions } from './cli.ts'
 import { layoutOf } from './layout.ts'
 import { renderPoolTable } from './pool-table.ts'
 import { scanPool } from './state.ts'
@@ -8,7 +8,7 @@ import { scanPool } from './state.ts'
  * does not know, or a binding whose directory is gone, is shown as `unknown` instead of being
  * hidden: `start` will not use either one, so they are drift to look at, not slots to allocate.
  */
-export async function runList(opts: RatoonOptions): Promise<void> {
+export async function runList(opts: BranchOptions): Promise<void> {
   const layout = await layoutOf()
   const pool = await scanPool(layout.root, layout.mainDir)
 

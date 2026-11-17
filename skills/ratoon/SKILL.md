@@ -27,7 +27,8 @@ description: Work on several tasks at once in parallel git worktrees, or land a 
 4. `ratoon finish <task> -m "<message>"` squashes, rebases onto the target, fast-forwards, and parks
    the slot. The `-m` text is the landing commit, verbatim — this one is written for people. The
    target is the branch checked out in the main worktree; `--into <branch>` lands elsewhere and
-   leaves that worktree untouched.
+   leaves that worktree untouched. A task started with `--base` must also pass `--skip-base` or
+   `--include-base`; see `references/stacking.md`.
 5. `ratoon abandon <task>` throws the work away and parks the slot.
 
 `ratoon list` shows the pool. `ratoon task list` shows the same table with a `NOTES` column for

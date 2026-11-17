@@ -238,9 +238,10 @@ ratoon start review --base feature/add-banner   # review starts where add-banner
 ```
 
 It is a copy of that work in a new slot, not a link — the new branch carries the other task's
-drafts, so landing it lands both. `--base` needs a committed checkpoint: uncommitted work in the
-other slot is invisible, and the flag only says where a branch *starts*. Which of the two to finish
-first depends on whether both should land; the skill's *Building on another task* has the decision.
+drafts. `finish` makes you choose what the landing commit owns: `--skip-base` lands only this
+task's changes, `--include-base` lands the base snapshot and the task as one commit. The choice is
+required and never inferred. `--base` needs a committed checkpoint: uncommitted work in the other
+slot is invisible, and the flag only says where a branch *starts*.
 
 ## Development
 

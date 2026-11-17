@@ -20,6 +20,13 @@ left out so release and pipeline commits stay out of the notes. To surface anoth
 type, extend that config — do not rewrite commit prefixes or history to satisfy the
 generator.
 
+## Tests
+
+`nub run test` is the whole suite. Each e2e case builds a real git repository and drives the CLI in
+a subprocess, so a full run takes minutes — while iterating, run only what you touched:
+`npx vitest run tests/e2e/finish.test.ts`, narrowed further with `-t "<case name>"`. Typecheck and
+lint the files you edited. Save the full suite for the point where the change is done.
+
 ## Releasing
 
 A version bump is a `:bookmark: chore: release X` commit on master. Push master and

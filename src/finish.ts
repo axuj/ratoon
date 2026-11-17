@@ -1,8 +1,8 @@
-import type { RatoonOptions } from './cli.ts'
+import type { FinishOptions } from './cli.ts'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { PausedError } from './errors.ts'
-import { branchExists, checkedOutAt, currentBranch, park, rebaseInProgress, revOf, squashCommits } from './git.ts'
+import { branchExists, checkedOutAt, currentBranch, isAncestor, mergeBaseOf, park, rebaseInProgress, revOf, squashCommits } from './git.ts'
 import { describeHooks, loadHooks } from './hooks.ts'
 import { layoutOf } from './layout.ts'
 import { exec, run } from './shell.ts'
@@ -80,7 +80,9 @@ async function rebaseStep(worktreeDir: string, ...args: string[]): Promise<void>
 
   const where = args.includes('--continue')
     ? 'while applying the next commit'
-    : `while rebasing onto ${args[0]}`
+    : `while rebasing onto ${args[0] === '--onto'
+      ? (args[1] ?? '')
+      : (args[0] ?? '')}`
   const list = absolute(worktreeDir, files)
   // only git's CONFLICT lines — its own hints say to run `git rebase --continue`, which would
   // contradict the single instruction below
@@ -128,13 +130,26 @@ function standingElsewhere(ref: string, where: string): string {
 }
 
 /**
+ * A task cut from `--base` cannot have its landing decided for it: the base snapshot may or may
+ * not belong in this commit, and the two readings are indistinguishable after a squash. Name both
+ * choices and change nothing until one is passed.
+ */
+function baseChoice(branch: string, baseRef: string, baseSha: string): string {
+  return `${branch} branches from ${baseRef} @ ${baseSha.slice(0, 7)}.\n\n`
+    + 'Choose one:\n'
+    + `  --include-base   land ${baseRef} + ${branch} as one commit\n`
+    + `  --skip-base      land only ${branch}'s changes\n\n`
+    + 'nothing was changed.'
+}
+
+/**
  * Where this task lands: `--into` names it outright, otherwise it is whatever the main worktree has
  * checked out — the branch a user sees move when `finish` prints its log.
  *
  * A branch another worktree is standing on is refused here, before anything is squashed: git will
  * not move that ref, and discovering it after the rewrite means doing the rewrite twice.
  */
-async function resolveLandingTarget(opts: RatoonOptions, mainDir: string): Promise<LandingTarget> {
+async function resolveLandingTarget(opts: FinishOptions, mainDir: string): Promise<LandingTarget> {
   const into = opts.into
   if (into !== undefined) {
     // A local branch, not any old ref: a tag or a remote-tracking name passes a plain `rev-parse`
@@ -167,6 +182,12 @@ interface FinishContext {
   target: string
   /** the target is checked out in the main worktree, so it is advanced by a merge */
   checkedOut: boolean
+  /** the ref `start --base` named, "" for an ordinary task */
+  baseRef: string
+  /** that ref's commit at start, "" for an ordinary task */
+  baseSha: string
+  /** what this landing owns; absent for a task that was not started with `--base` */
+  baseMode: FinishOptions['baseMode']
   root: string
   mainDir: string
   /** the title the landing commit will carry — typed by the caller, never derived */
@@ -189,7 +210,26 @@ async function commitsAhead(mainDir: string, base: string, branch: string): Prom
   return listed.stdout.split('\n').map(line => line.trim()).filter(Boolean)
 }
 
-export async function runFinish(opts: RatoonOptions, task: string, title: string): Promise<void> {
+/**
+ * The recorded base as the branch actually carries it. A manual rebase onto a newer tip moves the
+ * fork point forward, so the base ref wins while it is still an ancestor; the recorded sha is the
+ * fallback once landing deleted that ref.
+ */
+async function ownBase(worktreeDir: string, baseRef: string, baseSha: string): Promise<string> {
+  if (baseRef !== '' && await isAncestor(worktreeDir, baseRef, 'HEAD')) {
+    const fork = await mergeBaseOf(worktreeDir, baseRef)
+    if (fork !== '')
+      return fork
+  }
+  if (baseSha !== '' && await isAncestor(worktreeDir, baseSha, 'HEAD'))
+    return baseSha
+  throw new Error(
+    `the recorded base ${baseRef} @ ${baseSha.slice(0, 7)} is not an ancestor of this branch — `
+    + 'rebase the task onto its base, then run finish again (or land it with --include-base)',
+  )
+}
+
+export async function runFinish(opts: FinishOptions, task: string, title: string): Promise<void> {
   const layout = await layoutOf()
   const { root, mainDir } = layout
   const branch = `${opts.branchPrefix}${task}`
@@ -211,6 +251,15 @@ export async function runFinish(opts: RatoonOptions, task: string, title: string
     // Resolved after the slot lookup: a task no slot holds is answered first, even when the main
     // worktree is detached — CI checks out tags that way.
     const target = await resolveLandingTarget(opts, mainDir)
+
+    // A task cut from --base must say what its landing owns: the base snapshot too, or only its
+    // own changes. After a squash the two are indistinguishable, so this is never inferred. Passing
+    // both flags is refused while argv is read, before any of this runs.
+    const stacked = slot.baseRef !== ''
+    if (stacked && opts.baseMode === undefined)
+      throw new Error(baseChoice(branch, slot.baseRef, slot.baseSha))
+    if (!stacked && opts.baseMode === 'skip')
+      throw new Error(`--skip-base needs a task started with --base; ${task} has no recorded base`)
 
     // A PR cannot be merged without a title, and neither can this: the landing commit's message is
     // the caller's words, so it is demanded *before* anything is touched — no hooks, no squash, no
@@ -244,6 +293,9 @@ export async function runFinish(opts: RatoonOptions, task: string, title: string
         branch,
         target: target.ref,
         checkedOut: target.checkedOut,
+        baseRef: slot.baseRef,
+        baseSha: slot.baseSha,
+        baseMode: opts.baseMode,
         root,
         mainDir,
         title,
@@ -266,13 +318,14 @@ export async function runFinish(opts: RatoonOptions, task: string, title: string
 }
 
 async function landTask(ctx: FinishContext): Promise<void> {
-  const { task, branch, target, checkedOut, root, mainDir, title, slotDir, worktreeDir } = ctx
+  const { task, branch, target, checkedOut, baseRef, baseSha, baseMode, root, mainDir, title, slotDir, worktreeDir } = ctx
   console.log(`\n[1/4] verifying ${branch} in ${slotDir}\n`)
 
   // A conflict pauses finish (exit 2) instead of failing it: nothing has been changed, so an agent
   // only has to edit the file and run the same command again. Staging and `--continue` are ours —
   // bare `--continue` would open an editor, and nobody should have to be told to type `git add`.
   // Must run before the branch check: mid rebase HEAD is detached.
+  let resumed = false
   if (await rebaseInProgress(worktreeDir)) {
     const unmerged = await unmergedPaths(worktreeDir)
     const marked = stillMarked(worktreeDir, unmerged)
@@ -293,6 +346,7 @@ async function landTask(ctx: FinishContext): Promise<void> {
     }
     console.log('conflicts resolved — continuing the rebase\n')
     await rebaseStep(worktreeDir, '--continue')
+    resumed = true
   }
 
   const head = await currentBranch(worktreeDir)
@@ -350,35 +404,86 @@ async function landTask(ctx: FinishContext): Promise<void> {
 
   // The message lands exactly as typed; a multi-commit branch is collapsed into it, and every
   // draft message is discarded. No lock is needed: the index is this slot's own.
-  const collapsed = await squashCommits(worktreeDir, target, title)
-  if (collapsed === 0) {
-    // Nothing to land: the branch has no commits, or they cancel out. The slot is still cleared and
-    // parked below, exactly like a task that never started.
-    console.log(`  nothing : ${branch} changes nothing on ${target} — nothing to land`)
-  }
-  else {
-    console.log(`  commit  : ${title}`)
-    if (collapsed > 1)
-      console.log(`  squashed: ${collapsed} draft commits`)
-  }
-  console.log('')
+  //
+  // A task cut from --base that chose `--skip-base` starts at its own fork point; `--include-base`
+  // starts at the target's merge base, so the base snapshot is part of this commit. An ordinary
+  // task has only the merge base.
+  const mode = baseMode === 'skip'
+    ? 'skip-base'
+    : baseMode === 'include'
+      ? 'include-base'
+      : 'merge-base'
+  const baseLabel = baseRef || target
+  const recorded = baseSha !== ''
+    ? ` @ ${baseSha.slice(0, 7)}`
+    : ''
 
-  const ancestor = await exec('git', [
-    '-C',
-    worktreeDir,
-    'merge-base',
-    '--is-ancestor',
-    target,
-    'HEAD',
-  ])
-  if (ancestor.status !== 0) {
-    if (ancestor.status !== 1)
-      throw new Error(`git merge-base --is-ancestor failed (${ancestor.status})`)
-    console.log(`${target} has new commits — rebasing ${branch} onto ${target}\n`)
-    await rebaseStep(worktreeDir, target)
+  // A resume completes a rebase this command already started, and the squash ran before it — HEAD
+  // is the one landing commit on the target. Recomputing the boundary now would be wrong: in
+  // --skip-base mode the recorded base is no longer an ancestor, by design.
+  if (resumed) {
+    console.log(`  base    : ${baseLabel}${recorded} (${mode})`)
+    console.log(`  commit  : ${title} (squashed before the pause)\n`)
   }
   else {
-    console.log(`${branch} is already on top of ${target}\n`)
+    const from = baseMode === 'skip'
+      ? await ownBase(worktreeDir, baseRef, baseSha)
+      : await mergeBaseOf(worktreeDir, target)
+    if (from === '')
+      throw new Error(`no common ancestor between ${branch} and ${target} — refusing to land it`)
+    console.log(`  base    : ${baseLabel}${recorded} (${mode})`)
+    console.log(`  squash  : ${from.slice(0, 7)}..HEAD\n`)
+
+    const collapsed = await squashCommits(worktreeDir, from, title)
+    if (collapsed === 0) {
+      // Nothing to land: the branch has no commits, or they cancel out. Move the branch to the
+      // target itself — the landing below is then a no-op, and a tree-equal base cannot leave
+      // commits from the stack in the landed history. The slot is still cleared and parked.
+      await run('git', [
+        '-C',
+        worktreeDir,
+        'reset',
+        '--hard',
+        target,
+      ])
+      console.log(`  nothing : ${branch} changes nothing on ${target} — nothing to land`)
+    }
+    else {
+      console.log(`  commit  : ${title}`)
+      if (collapsed > 1)
+        console.log(`  squashed: ${collapsed} draft commits`)
+    }
+    console.log('')
+
+    if (collapsed > 0) {
+      const ancestor = await exec('git', [
+        '-C',
+        worktreeDir,
+        'merge-base',
+        '--is-ancestor',
+        target,
+        'HEAD',
+      ])
+      if (ancestor.status !== 0 && ancestor.status !== 1)
+        throw new Error(`git merge-base --is-ancestor failed (${ancestor.status})`)
+      const onTarget = ancestor.status === 0
+      const targetSha = await revOf(worktreeDir, target)
+      // Even when the target is already an ancestor, a squash cut from an older base still
+      // carries the base's commits. Rewriting onto the target drops them, leaving the chosen delta.
+      if (!onTarget || from !== targetSha) {
+        console.log(onTarget
+          ? `${branch} carries commits before its base — rebasing it onto ${target}\n`
+          : `${target} has new commits — rebasing ${branch} onto ${target}\n`)
+        await rebaseStep(worktreeDir, '--onto', target, from)
+      }
+      else {
+        console.log(`${branch} is already on top of ${target}\n`)
+      }
+    }
+    else {
+      // reset --hard already put the branch on the target
+      console.log(`${branch} is already on top of ${target}\n`)
+    }
   }
 
   await landOnto(mainDir, target, branch, checkedOut)

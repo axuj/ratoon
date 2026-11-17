@@ -81,6 +81,33 @@ export async function revOf(dir: string, ref: string): Promise<string> {
     : ''
 }
 
+/** The newest common ancestor of two commits, or "" when they share none. */
+export async function mergeBaseOf(repoDir: string, a: string, b = 'HEAD'): Promise<string> {
+  const result = await exec('git', [
+    '-C',
+    repoDir,
+    'merge-base',
+    a,
+    b,
+  ])
+  return result.status === 0
+    ? result.stdout.trim()
+    : ''
+}
+
+/** True when `ancestor` is reachable from `descendant`. */
+export async function isAncestor(repoDir: string, ancestor: string, descendant: string): Promise<boolean> {
+  const result = await exec('git', [
+    '-C',
+    repoDir,
+    'merge-base',
+    '--is-ancestor',
+    ancestor,
+    descendant,
+  ])
+  return result.status === 0
+}
+
 /** Detach a slot at `base` while keeping the worktree binding — this is what "parked" means. */
 export async function park(mainDir: string, slotDir: string, base: string): Promise<void> {
   await run('git', [
@@ -110,8 +137,11 @@ export async function rebaseInProgress(worktreeDir: string): Promise<boolean> {
 }
 
 /**
- * Collapse every commit between `base` and HEAD into a single one, in place: `reset --soft` back to
- * the merge base, then commit what the index already holds.
+ * Collapse every commit between `from` and HEAD into a single one, in place: `reset --soft` back to
+ * `from`, then commit what the index already holds.
+ *
+ * `from` is the caller's chosen boundary, not a merge base: a stacked task must say whether its
+ * landing includes the base snapshot, and the squash must start exactly there.
  *
  * Deliberately avoids `git merge --squash`: that runs a real merge in the main repository and, on
  * a conflict, leaves an index with no `MERGE_HEAD` — nothing to `--abort`, nothing to resume, and a
@@ -127,23 +157,15 @@ export async function rebaseInProgress(worktreeDir: string): Promise<boolean> {
  * after a paused or failed finish must not rewrite work into a new sha.
  *
  * A branch whose commits add up to no tree change has nothing to land: its commits are dropped —
- * itself a no-op, since the tree already equals the merge base — rather than landing draft messages
+ * itself a no-op, since the tree already equals `from` — rather than landing draft messages
  * that carry no content, or an empty commit that would be pure noise.
  *
  * Returns how many commits the branch had (0 = nothing to land, 1 = kept or replaced, 2+ =
  * collapsed), which is what the step log reports.
  */
-export async function squashCommits(repoDir: string, base: string, message: string): Promise<number> {
-  const mergeBase = await exec('git', [
-    '-C',
-    repoDir,
-    'merge-base',
-    base,
-    'HEAD',
-  ])
-  if (mergeBase.status !== 0)
+export async function squashCommits(repoDir: string, from: string, message: string): Promise<number> {
+  if (from === '')
     return 0
-  const from = mergeBase.stdout.trim()
 
   const count = await exec('git', [
     '-C',
@@ -159,7 +181,7 @@ export async function squashCommits(repoDir: string, base: string, message: stri
     return 0
 
   // Commits that cancel each other out leave no tree difference. Drop them: a task with no net
-  // change has nothing to land, and `reset --hard` to the merge base is lossless — the trees are
+  // change has nothing to land, and `reset --hard` to `from` is lossless — the trees are
   // already identical. Landing them instead would put draft commits on the base; landing an empty
   // commit would be noise. This has to run before the rewrite below, so one empty commit gets the
   // same treatment as ten.

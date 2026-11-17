@@ -1,4 +1,4 @@
-import type { RatoonOptions } from './cli.ts'
+import type { BranchOptions } from './cli.ts'
 import { existsSync } from 'node:fs'
 import { PausedError } from './errors.ts'
 import { branchExists, currentBranch, park, pruneWorktrees, rebaseInProgress, revOf } from './git.ts'
@@ -53,9 +53,10 @@ async function discardSummary(mainDir: string, base: string, branch: string): Pr
     : 'they stay'} in the reflog)${listed}`
 }
 
-export async function runAbandon(opts: RatoonOptions, task: string): Promise<void> {
+export async function runAbandon(opts: BranchOptions, task: string): Promise<void> {
   const layout = await layoutOf()
-  const base = await resolveBaseRef(opts, layout.mainDir)
+  // abandon never names a base; it parks at the branch start would have cut from.
+  const base = await resolveBaseRef(undefined, layout.mainDir)
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout
 

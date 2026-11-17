@@ -30,13 +30,33 @@ function discardBrokenPipe(err: NodeJS.ErrnoException): void {
 process.stdout.on('error', discardBrokenPipe)
 process.stderr.on('error', discardBrokenPipe)
 
-export interface RatoonOptions {
-  /** where a new task is cut from — `start` only, no other command declares it */
-  base?: string
+/**
+ * Options are typed per command, mirroring the `args` each command declares below: a single bag
+ * shared by all five would let `start` read `--into`, and would type-check handing `--skip-base` to
+ * a command that never declared it. `branchPrefix` is the one option every command takes, so it is
+ * written once here and extended by the commands that add something. Each command's reader is what
+ * turns argv into its own shape.
+ */
+export interface BranchOptions {
   branchPrefix: string
-  /** `finish` only: the branch the work lands on; absent means the main worktree's checked-out one */
-  into?: string
 }
+
+export interface StartOptions extends BranchOptions {
+  /** where the new task is cut from; absent means the base branch */
+  base?: string
+}
+
+/** A stacked task's landing is one of two readings, never both: the base snapshot is in, or it is not. */
+export type BaseMode = 'include' | 'skip'
+
+export interface FinishOptions extends BranchOptions {
+  /** the branch the work lands on; absent means the main worktree's checked-out one */
+  into?: string
+  /** what the landing commit owns; absent for a task that was not started with `--base` */
+  baseMode?: BaseMode
+}
+
+/** `abandon` and `list` add no options of their own; they take exactly the common set. */
 
 /** Every command that turns a task name into a branch needs the prefix, so every command takes it. */
 const branchPrefixFlag = {
@@ -78,6 +98,8 @@ interface SharedArgValues {
   'base'?: string
   'branch-prefix'?: string
   'into'?: string
+  'include-base'?: boolean
+  'skip-base'?: boolean
   [key: string]: unknown
 }
 
@@ -92,16 +114,53 @@ interface RunContext {
   cmd: { args?: unknown, meta?: unknown }
 }
 
-function toOptions(args: SharedArgValues): RatoonOptions {
+/** The prefix every task branch is built from — the one option all five commands take. */
+function branchOptions(args: SharedArgValues): BranchOptions {
   return {
-    base: args.base,
     branchPrefix: args['branch-prefix'] ?? 'feature/',
-    into: args.into,
   }
 }
 
+function startOptions(args: SharedArgValues): StartOptions {
+  return {
+    ...branchOptions(args),
+    base: args.base,
+  }
+}
+
+/**
+ * `--include-base` and `--skip-base` are two spellings of one choice, so they are narrowed to a
+ * single value here rather than carried as independent booleans that can both be true. Refusing
+ * both before the command runs also means the complaint does not wait for a slot lookup.
+ */
+function finishOptions(args: SharedArgValues): FinishOptions {
+  const include = args['include-base'] === true
+  const skip = args['skip-base'] === true
+  if (include && skip)
+    throw new Error('--include-base and --skip-base are alternatives — pass exactly one')
+  const baseMode: FinishOptions['baseMode'] = include
+    ? 'include'
+    : skip
+      ? 'skip'
+      : undefined
+  return {
+    ...branchOptions(args),
+    into: args.into,
+    baseMode,
+  }
+}
+
+/** `init` declares no options, so its shape is empty — and any flag is still rejected below. */
+function noOptions(): Record<string, never> {
+  return {}
+}
+
 /** Our own errors exit 1 with a single line; a pause (see `PausedError`) exits 2. */
-async function guard<T>(ctx: RunContext, run: (opts: RatoonOptions) => Promise<T>): Promise<T> {
+async function guard<T, O>(
+  ctx: RunContext,
+  read: (args: SharedArgValues) => O,
+  run: (opts: O) => Promise<T>,
+): Promise<T> {
   try {
     const unknown = unknownFlagMessage({
       rawArgs: ctx.rawArgs,
@@ -110,7 +169,7 @@ async function guard<T>(ctx: RunContext, run: (opts: RatoonOptions) => Promise<T
     })
     if (unknown !== undefined)
       throw new Error(unknown)
-    return await run(toOptions(ctx.args))
+    return await run(read(ctx.args))
   }
   catch (err) {
     console.error(`\nratoon: ${err instanceof Error
@@ -139,7 +198,7 @@ const startCommand = defineCommand({
     },
     ...branchPrefixFlag,
   },
-  run: ctx => guard(ctx, async (opts) => {
+  run: ctx => guard(ctx, startOptions, async (opts) => {
     const task: string = ctx.args.task
     validateTask(task, 'start')
     await runStart(opts, task)
@@ -152,23 +211,31 @@ const finishCommand = defineCommand({
     description: 'verify -> onFinish -> squash into one commit (title from -m) -> rebase onto the target -> fast-forward it -> park detached -> delete branch -> free slot',
   },
   args: {
-    task: {
+    'task': {
       type: 'positional',
       required: true,
       description: 'kebab-case task name, e.g. add-bento-grid',
     },
-    message: {
+    'message': {
       type: 'string',
       alias: 'm',
       description: 'title of the landing commit — the squash subject, like a PR title (required when the branch has commits)',
     },
-    into: {
+    'into': {
       type: 'string',
       description: 'branch to land on, instead of the one checked out in the main worktree (e.g. a long-lived v2 branch)',
     },
+    'include-base': {
+      type: 'boolean',
+      description: 'for a task started with --base: land that base snapshot together with the task, as one commit',
+    },
+    'skip-base': {
+      type: 'boolean',
+      description: 'for a task started with --base: land only the task\'s own changes, without the base snapshot',
+    },
     ...branchPrefixFlag,
   },
-  run: ctx => guard(ctx, async (opts) => {
+  run: ctx => guard(ctx, finishOptions, async (opts) => {
     const task: string = ctx.args.task
     validateTask(task, 'finish')
     await runFinish(opts, task, (ctx.args.message ?? '').trim())
@@ -188,7 +255,7 @@ const abandonCommand = defineCommand({
     },
     ...branchPrefixFlag,
   },
-  run: ctx => guard(ctx, async (opts) => {
+  run: ctx => guard(ctx, branchOptions, async (opts) => {
     const task: string = ctx.args.task
     validateTask(task, 'abandon')
     await runAbandon(opts, task)
@@ -201,7 +268,7 @@ const listCommand = defineCommand({
     description: 'show the slot table (busy / task / checked-out branch)',
   },
   args: branchPrefixFlag,
-  run: ctx => guard(ctx, opts => runList(opts)),
+  run: ctx => guard(ctx, branchOptions, opts => runList(opts)),
 })
 
 const initCommand = defineCommand({
@@ -209,7 +276,7 @@ const initCommand = defineCommand({
     name: 'init',
     description: 'create the optional hook toolbox: hooks.ts, types and starter plugins (slots work without it)',
   },
-  run: ctx => guard(ctx, () => runInit()),
+  run: ctx => guard(ctx, noOptions, () => runInit()),
 })
 
 /** The engine's own commands. Plugin commands are merged in at runtime, never into this table. */

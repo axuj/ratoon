@@ -529,7 +529,7 @@ describe('ratoon finish', () => {
 
     await start(c, 'second-line', ['--base', 'v2'])
     commitInSlot('slot-0', 'two.txt', 'two\n', 'add two')
-    const second = await finish('second-line', ['--into', 'v2'])
+    const second = await finish('second-line', ['--into', 'v2', '--skip-base'])
     expect(second.status, second.stdout + second.stderr).toBe(0)
 
     // v2 carries both, newest on top, one commit each, still linear
@@ -543,6 +543,130 @@ describe('ratoon finish', () => {
     expect(gitOut(c.repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('master')
     expect(() => gitOut(c.repo, 'show', 'master:one.txt')).toThrow()
     expect(slotState()).toMatchObject({ busy: false })
+  })
+
+  it('requires an explicit base choice for a task started with --base', async () => {
+    await start(c, 'base-a')
+    commitInSlot('slot-0', 'base.txt', 'base\n', 'draft base')
+    const child = await start(c, 'base-b', ['--base', 'feature/base-a'])
+    commitInSlot('slot-1', 'child.txt', 'child\n', 'draft child')
+    expect(child.stdout).toMatch(/base\s+: feature\/base-a @ [0-9a-f]{7}/)
+
+    const missing = await finish('base-b')
+    expect(missing.status).toBe(1)
+    expect(missing.stderr).toContain('feature/base-b branches from feature/base-a')
+    expect(missing.stderr).toContain('--include-base')
+    expect(missing.stderr).toContain('--skip-base')
+    expect(missing.stderr).toContain('nothing was changed')
+    expect(gitOut(c.repo, 'branch', '--list', 'feature/base-b')).toContain('feature/base-b')
+    expect(slotState('slot-1')).toMatchObject({ busy: true })
+
+    const both = await finish('base-b', ['--include-base', '--skip-base'])
+    expect(both.status).toBe(1)
+    expect(both.stderr).toContain('are alternatives')
+  })
+
+  it('lands only the task delta when --skip-base is chosen', async () => {
+    await start(c, 'delta-a')
+    commitInSlot('slot-0', 'shared.txt', 'a: 2\nb: 1\n', 'draft A')
+    await start(c, 'delta-b', ['--base', 'feature/delta-a'])
+    commitInSlot('slot-1', 'shared.txt', 'a: 3\nb: 1\n', 'draft B')
+
+    expect((await finish('delta-a')).status).toBe(0)
+    const second = await finish('delta-b', ['--skip-base'])
+    expect(second.status, second.stdout + second.stderr).toBe(0)
+    expect(second.stdout).toContain('base    : feature/delta-a')
+    expect(second.stdout).toContain('(skip-base)')
+    expect(second.stdout).not.toContain('squashed: 2 draft commits')
+    expect(gitOut(c.repo, 'show', 'master:shared.txt')).toBe('a: 3\nb: 1')
+    expect(gitOut(c.repo, 'show', '--stat', '--format=', 'master')).toContain('1 file changed, 1 insertion(+), 1 deletion(-)')
+  })
+
+  it('keeps an unlanded base out of the landed history with --skip-base', async () => {
+    await start(c, 'skip-a')
+    commitInSlot('slot-0', 'base.txt', 'base\n', 'draft A')
+    await start(c, 'skip-b', ['--base', 'feature/skip-a'])
+    commitInSlot('slot-1', 'other.txt', 'b only\n', 'draft B')
+
+    const result = await finish('skip-b', ['--skip-base'])
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+
+    // only B's delta: A's file and A's commit never reach master
+    expect(gitOut(c.repo, 'show', 'master:other.txt')).toBe('b only')
+    expect(() => gitOut(c.repo, 'show', 'master:base.txt')).toThrow()
+    expect(gitOut(c.repo, 'rev-list', '--count', 'master')).toBe('2')
+  })
+
+  it('skips a base that has several draft commits', async () => {
+    await start(c, 'multi-a')
+    commitInSlot('slot-0', 'shared.txt', 'a: 1.5\nb: 1\n', 'draft A1')
+    commitInSlot('slot-0', 'shared.txt', 'a: 2\nb: 1\n', 'draft A2')
+    await start(c, 'multi-b', ['--base', 'feature/multi-a'])
+    commitInSlot('slot-1', 'shared.txt', 'a: 3\nb: 1\n', 'draft B')
+
+    expect((await finish('multi-a')).status).toBe(0)
+    const second = await finish('multi-b', ['--skip-base'])
+    expect(second.status, second.stdout + second.stderr).toBe(0)
+    expect(gitOut(c.repo, 'show', 'master:shared.txt')).toBe('a: 3\nb: 1')
+    expect(gitOut(c.repo, 'rev-list', '--count', 'master')).toBe('3')
+  })
+
+  it('lands a revert of the base with --skip-base instead of dropping it', async () => {
+    await start(c, 'revert-a')
+    commitInSlot('slot-0', 'shared.txt', 'a: 2\nb: 1\n', 'draft A')
+    await start(c, 'revert-b', ['--base', 'feature/revert-a'])
+    commitInSlot('slot-1', 'shared.txt', 'a: 1\nb: 1\n', 'draft B: revert')
+
+    expect((await finish('revert-a')).status).toBe(0)
+    const second = await finish('revert-b', ['--skip-base'])
+    expect(second.status, second.stdout + second.stderr).toBe(0)
+    expect(second.stdout).not.toContain('nothing to land')
+    expect(gitOut(c.repo, 'show', 'master:shared.txt')).toBe('a: 1\nb: 1')
+  })
+
+  it('resumes a --skip-base landing after a rebase conflict', async () => {
+    await start(c, 'resume-a')
+    commitInSlot('slot-0', 'index.js', 'export const x = 2\n', 'draft A')
+    await start(c, 'resume-b', ['--base', 'feature/resume-a'])
+    commitInSlot('slot-1', 'index.js', 'export const x = 3\n', 'draft B')
+    writeFile(path.join(c.repo, 'index.js'), 'export const x = 4\n')
+    await commitAll(c.repo, 'mainline edit')
+
+    const first = await finish('resume-b', ['--skip-base'])
+    expect(first.status).toBe(2)
+    expect(first.stderr).toContain('while rebasing onto master')
+
+    // the base is gone from the history by then, so the squash cannot be recomputed
+    writeFile(path.join(slotDir(c, 'slot-1'), 'index.js'), 'export const x = 5\n')
+    const second = await finish('resume-b', ['--skip-base'])
+    expect(second.status, second.stdout + second.stderr).toBe(0)
+    expect(second.stdout).toContain('squashed before the pause')
+    expect(gitOut(c.repo, 'show', 'master:index.js')).toBe('export const x = 5')
+    // base + mainline edit + this landing — draft A never landed
+    expect(gitOut(c.repo, 'rev-list', '--count', 'master')).toBe('3')
+  })
+
+  it('lands the base snapshot with --include-base when the base has not landed', async () => {
+    await start(c, 'whole-a')
+    commitInSlot('slot-0', 'shared.txt', 'a: 2\nb: 1\n', 'draft A')
+    await start(c, 'whole-b', ['--base', 'feature/whole-a'])
+    commitInSlot('slot-1', 'shared.txt', 'a: 3\nb: 1\n', 'draft B')
+
+    const result = await finish('whole-b', ['--include-base'])
+    expect(result.status, result.stdout + result.stderr).toBe(0)
+    expect(result.stdout).toContain('(include-base)')
+    expect(result.stdout).toContain('squashed: 2 draft commits')
+    expect(gitOut(c.repo, 'show', 'master:shared.txt')).toBe('a: 3\nb: 1')
+    expect(gitOut(c.repo, 'rev-list', '--count', 'master')).toBe('2')
+  })
+
+  it('refuses --skip-base for a task that did not name a base', async () => {
+    await start(c, 'plain-task')
+    commitInSlot('slot-0', 'plain.txt', 'plain\n', 'draft')
+
+    const result = await finish('plain-task', ['--skip-base'])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('--skip-base needs a task started with --base')
   })
 
   it('refuses a target another worktree is standing on, before squashing anything', async () => {

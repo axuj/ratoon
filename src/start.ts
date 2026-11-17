@@ -1,12 +1,12 @@
-import type { RatoonOptions } from './cli.ts'
+import type { StartOptions } from './cli.ts'
 import type { PoolSlot } from './state.ts'
 import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { branchExists, currentBranch, deleteBranchIfUnchanged, park, pruneWorktrees } from './git.ts'
+import { branchExists, currentBranch, deleteBranchIfUnchanged, park, pruneWorktrees, revOf } from './git.ts'
 import { describeHooks, loadHooks } from './hooks.ts'
 import { layoutOf, resolveBaseRef } from './layout.ts'
 import { exec, rmrf, run } from './shell.ts'
-import { claim, clearTask, foreignSlotPaths, isFree, release, scanPool } from './state.ts'
+import { claim, clearBase, clearTask, foreignSlotPaths, isFree, release, scanPool, setBase } from './state.ts'
 
 function message(err: unknown): string {
   return err instanceof Error
@@ -14,12 +14,12 @@ function message(err: unknown): string {
     : String(err)
 }
 
-export async function runStart(opts: RatoonOptions, task: string): Promise<void> {
+export async function runStart(opts: StartOptions, task: string): Promise<void> {
   const layout = await layoutOf()
   const branch = `${opts.branchPrefix}${task}`
   const { root, mainDir } = layout
 
-  const base = await resolveBaseRef(opts, mainDir)
+  const base = await resolveBaseRef(opts.base, mainDir)
   await warnUncommittedMain(mainDir, base)
 
   // A changed ratoon.poolPath — or the default moving outside the repository — leaves git's
@@ -116,6 +116,8 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
       missing: !slotWasThere,
       branch: '',
       task,
+      baseRef: '',
+      baseSha: '',
       claimedBy: process.pid,
     }
 
@@ -127,6 +129,15 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
       throw new Error(`git branch ${branch} failed\n${detail}`)
     }
     branchCreated = true
+
+    // `--base` is a choice the task carries to finish: record the ref and the exact commit it
+    // named, so a later finish can ask whether to land it or only the task's own changes. A task
+    // without --base has no such choice to make.
+    const baseSha = await revOf(mainDir, branch)
+    if (opts.base !== undefined)
+      setBase(root, claimed, base, baseSha)
+    else
+      clearBase(root, claimed)
 
     // Slot claimed, git has not touched it yet: the only place a hook may still see the previous
     // task's files. Outside any lock — a hook is user code.
@@ -173,7 +184,7 @@ export async function runStart(opts: RatoonOptions, task: string): Promise<void>
 
     console.log(`\n[3/3] slot ${claimed} ready (${isNew ? 'new' : 'reused'})\n`)
     console.log(
-      `  branch  : ${branch}\n  worktree: ${slotDir}\n  base    : ${base}\n`
+      `  branch  : ${branch}\n  worktree: ${slotDir}\n  base    : ${base} @ ${baseSha.slice(0, 7)}\n`
       + `  plugins : ${describeHooks(hooks.present, ranHooks, hooks.count)}\n`,
     )
     // The most common first-run surprise: an empty hooks array installs nothing and the slot looks
